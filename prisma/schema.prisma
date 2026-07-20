@@ -23,25 +23,18 @@ model Company {
 }
 
 /// The generic wine catalog — one row per real-world wine, shared across every
-/// company. Holds only facts about the wine itself (not a specific store's
-/// stock/price, and not a specific bottle: no vintage here, since the same
-/// SKU can be restocked under a different vintage).
+/// company. Not a specific bottle: no vintage here, since the same SKU can be
+/// restocked under a different vintage.
+///
+/// `extraData` is the AI-generated enrichment (tasting_notes, taste_profile,
+/// pairs_well_with, variety, region, country, body/acidity/tannin/sweetness,
+/// dryness_label, why_we_love_it, from_the_team, provenance) — the default
+/// copy every company starts from.
 model Wine {
-  id            String   @id @default(uuid())
-  itemName      String   @map("item_name")
-  variety       String?
-  region        String?
-  country       String?
-  tastingNotes  String?  @map("tasting_notes")
-  tasteProfile  String[] @map("taste_profile")
-  pairsWellWith String[] @map("pairs_well_with")
-  body          Int?
-  acidity       Int?
-  tannin        Int?
-  sweetness     Int?
-  drynessLabel  String?  @map("dryness_label")
-  provenance    String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid())
+  itemName  String   @map("item_name")
+  extraData Json?    @map("extra_data")
+  createdAt DateTime @default(now()) @map("created_at")
 
   companies CompanyWine[]
 
@@ -49,9 +42,12 @@ model Wine {
   @@map("wines")
 }
 
-/// A company's listing of a wine — everything that varies per store,
-/// including the store's own editable copy (starts out AI-generated, then
-/// the company can rewrite it in their own voice).
+/// A company's listing of a wine — everything that varies per store.
+///
+/// `extraData` is null until the company edits their copy; when set, it's
+/// the same shape as `Wine.extraData` and takes priority — the API resolves
+/// a listing's enrichment as `companyWine.extraData ?? wine.extraData`, so
+/// a company only needs to override the fields it actually wants to change.
 model CompanyWine {
   id           String   @id @default(uuid())
   companyId    String   @map("company_id")
@@ -64,8 +60,6 @@ model CompanyWine {
   isWine       Boolean  @default(false) @map("is_wine")
   staffPick    Boolean  @default(false) @map("staff_pick")
   imageUrl     String?  @map("image_url")
-  whyWeLoveIt  String?  @map("why_we_love_it")
-  fromTheTeam  String?  @map("from_the_team")
   extraData    Json?    @map("extra_data")
   createdAt    DateTime @default(now()) @map("created_at")
 

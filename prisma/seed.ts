@@ -1,7 +1,27 @@
 import "../src/env";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+/** Shape the AI enrichment pipeline produces — same as wines-be-node's
+ * EnrichmentData. Stored as-is in `Wine.extraData`; a company only writes to
+ * `CompanyWine.extraData` once it edits its own copy. */
+interface EnrichmentData {
+  tasting_notes: string;
+  taste_profile: string[];
+  pairs_well_with: string[];
+  variety: string | null;
+  region: string | null;
+  country: string | null;
+  body: number;
+  acidity: number;
+  tannin: number;
+  sweetness: number;
+  dryness_label: string;
+  why_we_love_it: string;
+  from_the_team: string;
+  provenance: "verified" | "inferred";
+}
 
 async function main() {
   const company = await prisma.company.upsert({
@@ -14,71 +34,78 @@ async function main() {
     },
   });
 
-  const wines = [
+  const wines: { itemName: string; lookupCode: string; price: number; staffPick: boolean; extraData: EnrichmentData }[] = [
     {
       itemName: "Cecchi Chianti D.O.C.G.",
-      variety: "Sangiovese",
-      region: "Tuscany",
-      country: "Italy",
-      tastingNotes:
-        "Bright cherry and red plum with a savory, herbal edge and firm, food-friendly acidity.",
-      tasteProfile: ["Cherry", "Herb", "Earth"],
-      pairsWellWith: ["Pasta", "Pizza", "Grilled meats"],
-      body: 3,
-      acidity: 4,
-      tannin: 3,
-      sweetness: 1,
-      drynessLabel: "Dry",
-      provenance: "verified",
       lookupCode: "86891083872",
       price: 22.99,
       staffPick: true,
-      whyWeLoveIt: "A classic Chianti that overdelivers for the price.",
-      fromTheTeam: "Our go-to bottle for weeknight pasta.",
+      extraData: {
+        tasting_notes:
+          "Bright cherry and red plum with a savory, herbal edge and firm, food-friendly acidity.",
+        taste_profile: ["Cherry", "Herb", "Earth"],
+        pairs_well_with: ["Pasta", "Pizza", "Grilled meats"],
+        variety: "Sangiovese",
+        region: "Tuscany",
+        country: "Italy",
+        body: 3,
+        acidity: 4,
+        tannin: 3,
+        sweetness: 1,
+        dryness_label: "Dry",
+        why_we_love_it: "A classic Chianti that overdelivers for the price.",
+        from_the_team: "Our go-to bottle for weeknight pasta.",
+        provenance: "verified",
+      },
     },
     {
       itemName: "Banfi Brunello di Montalcino",
-      variety: "Sangiovese Grosso",
-      region: "Tuscany",
-      country: "Italy",
-      tastingNotes:
-        "Rich dark fruit, dried rose, and leather, with structured tannin built to age.",
-      tasteProfile: ["Dark fruit", "Leather", "Rose"],
-      pairsWellWith: ["Steak", "Aged cheese", "Braised short rib"],
-      body: 5,
-      acidity: 3,
-      tannin: 5,
-      sweetness: 1,
-      drynessLabel: "Dry",
-      provenance: "verified",
       lookupCode: "87199000123",
       price: 87.99,
       staffPick: true,
-      whyWeLoveIt: "A special-occasion bottle that always impresses.",
-      fromTheTeam: "Worth decanting an hour before you pour it.",
+      extraData: {
+        tasting_notes:
+          "Rich dark fruit, dried rose, and leather, with structured tannin built to age.",
+        taste_profile: ["Dark fruit", "Leather", "Rose"],
+        pairs_well_with: ["Steak", "Aged cheese", "Braised short rib"],
+        variety: "Sangiovese Grosso",
+        region: "Tuscany",
+        country: "Italy",
+        body: 5,
+        acidity: 3,
+        tannin: 5,
+        sweetness: 1,
+        dryness_label: "Dry",
+        why_we_love_it: "A special-occasion bottle that always impresses.",
+        from_the_team: "Worth decanting an hour before you pour it.",
+        provenance: "verified",
+      },
     },
   ];
 
   for (const w of wines) {
-    const { lookupCode, price, staffPick, whyWeLoveIt, fromTheTeam, ...wineData } = w;
-
     const existing = await prisma.companyWine.findUnique({
-      where: { companyId_lookupCode: { companyId: company.id, lookupCode } },
+      where: { companyId_lookupCode: { companyId: company.id, lookupCode: w.lookupCode } },
     });
     if (existing) continue;
 
-    const wine = await prisma.wine.create({ data: wineData });
+    const wine = await prisma.wine.create({
+      data: {
+        itemName: w.itemName,
+        extraData: w.extraData as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     await prisma.companyWine.create({
       data: {
         companyId: company.id,
         wineId: wine.id,
-        lookupCode,
-        price,
+        lookupCode: w.lookupCode,
+        price: w.price,
         isWine: true,
-        staffPick,
-        whyWeLoveIt,
-        fromTheTeam,
+        staffPick: w.staffPick,
+        // extraData left null — this company hasn't customized its copy yet,
+        // so reads fall back to the wine's AI-generated default.
       },
     });
   }
