@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// A liquor store / retailer using the app. Each company curates its own
+/// listing (price, stock, voice/copy) on top of the shared wine catalog.
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  logoUrl   String?  @map("logo_url")
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  wines CompanyWine[]
+
+  @@map("companies")
+}
+
+/// The generic wine catalog — one row per real-world wine, shared across every
+/// company. Holds only facts about the wine itself (not a specific store's
+/// stock/price, and not a specific bottle: no vintage here, since the same
+/// SKU can be restocked under a different vintage).
+model Wine {
+  id            String   @id @default(uuid())
+  itemName      String   @map("item_name")
+  variety       String?
+  region        String?
+  country       String?
+  tastingNotes  String?  @map("tasting_notes")
+  tasteProfile  String[] @map("taste_profile")
+  pairsWellWith String[] @map("pairs_well_with")
+  body          Int?
+  acidity       Int?
+  tannin        Int?
+  sweetness     Int?
+  drynessLabel  String?  @map("dryness_label")
+  provenance    String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  companies CompanyWine[]
+
+  @@index([itemName], map: "idx_wines_name")
+  @@map("wines")
+}
+
+/// A company's listing of a wine — everything that varies per store,
+/// including the store's own editable copy (starts out AI-generated, then
+/// the company can rewrite it in their own voice).
+model CompanyWine {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  wineId       String   @map("wine_id")
+  lookupCode   String   @map("lookup_code")
+  price        Float
+  size         String?
+  stockCount   Int?     @map("stock_count")
+  availability String?
+  isWine       Boolean  @default(false) @map("is_wine")
+  staffPick    Boolean  @default(false) @map("staff_pick")
+  imageUrl     String?  @map("image_url")
+  whyWeLoveIt  String?  @map("why_we_love_it")
+  fromTheTeam  String?  @map("from_the_team")
+  extraData    Json?    @map("extra_data")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  wine    Wine    @relation(fields: [wineId], references: [id])
+
+  @@unique([companyId, lookupCode])
+  @@index([companyId, staffPick], map: "idx_company_wines_staff")
+  @@map("company_wines")
+}
