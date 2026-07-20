@@ -30,15 +30,33 @@ model Company {
 /// pairs_well_with, variety, region, country, body/acidity/tannin/sweetness,
 /// dryness_label, why_we_love_it, from_the_team, provenance) — the default
 /// copy every company starts from.
+///
+/// `isWine`/`section`/`sectionSource` are objective classification facts
+/// about the item (is it actually a wine bottle, what country it's from) —
+/// same for every company, unlike `staffPick` which is a per-store curation
+/// choice and lives on `CompanyWine`. `section` is a plain indexed column
+/// (not folded into `extraData`) because search scopes/filters on it
+/// directly in raw SQL for performance.
+///
+/// `size` lives here, not on `CompanyWine`: a 750ml and a 1.5L magnum of the
+/// same label are different products (different price, different generic
+/// wine), not the same wine presented differently per store. Import-time
+/// dedup (matching a new CSV row to an existing Wine) keys on `itemName` +
+/// `size` together for this reason.
 model Wine {
-  id        String   @id @default(uuid())
-  itemName  String   @map("item_name")
-  extraData Json?    @map("extra_data")
-  createdAt DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  itemName      String   @map("item_name")
+  size          String?
+  isWine        Boolean  @default(false) @map("is_wine")
+  section       String?
+  sectionSource String   @default("heuristic") @map("section_source")
+  extraData     Json?    @map("extra_data")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   companies CompanyWine[]
 
   @@index([itemName], map: "idx_wines_name")
+  @@index([section], map: "idx_wines_section")
   @@map("wines")
 }
 
@@ -54,10 +72,8 @@ model CompanyWine {
   wineId       String   @map("wine_id")
   lookupCode   String   @map("lookup_code")
   price        Float
-  size         String?
   stockCount   Int?     @map("stock_count")
   availability String?
-  isWine       Boolean  @default(false) @map("is_wine")
   staffPick    Boolean  @default(false) @map("staff_pick")
   imageUrl     String?  @map("image_url")
   extraData    Json?    @map("extra_data")

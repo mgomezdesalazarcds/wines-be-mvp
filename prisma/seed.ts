@@ -34,9 +34,19 @@ async function main() {
     },
   });
 
-  const wines: { itemName: string; lookupCode: string; price: number; staffPick: boolean; extraData: EnrichmentData }[] = [
+  const wines: {
+    itemName: string;
+    size: string;
+    section: string;
+    lookupCode: string;
+    price: number;
+    staffPick: boolean;
+    extraData: EnrichmentData;
+  }[] = [
     {
       itemName: "Cecchi Chianti D.O.C.G.",
+      size: "750ML",
+      section: "italy",
       lookupCode: "86891083872",
       price: 22.99,
       staffPick: true,
@@ -60,6 +70,8 @@ async function main() {
     },
     {
       itemName: "Banfi Brunello di Montalcino",
+      size: "750ML",
+      section: "italy",
       lookupCode: "87199000123",
       price: 87.99,
       staffPick: true,
@@ -92,6 +104,10 @@ async function main() {
     const wine = await prisma.wine.create({
       data: {
         itemName: w.itemName,
+        size: w.size,
+        isWine: true,
+        section: w.section,
+        sectionSource: "ai",
         extraData: w.extraData as unknown as Prisma.InputJsonValue,
       },
     });
@@ -102,7 +118,6 @@ async function main() {
         wineId: wine.id,
         lookupCode: w.lookupCode,
         price: w.price,
-        isWine: true,
         staffPick: w.staffPick,
         // extraData left null — this company hasn't customized its copy yet,
         // so reads fall back to the wine's AI-generated default.
