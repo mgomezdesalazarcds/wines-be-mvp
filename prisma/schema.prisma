@@ -114,3 +114,22 @@ model FailureLog {
   @@index([companyId, source])
   @@map("failure_logs")
 }
+
+/// A CSV inventory file a company uploaded via the admin import screen — the
+/// raw file itself (so it can be downloaded again later), plus a summary of
+/// what importCsvForCompany() did with it.
+model CsvImport {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  filename     String
+  content      String
+  totalRows    Int      @map("total_rows")
+  createdCount Int      @map("created_count")
+  reusedCount  Int      @map("reused_count")
+  updatedCount Int      @map("updated_count")
+  skippedCount Int      @map("skipped_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@map("csv_imports")
+}

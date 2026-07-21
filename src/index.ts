@@ -5,6 +5,7 @@ import { prisma } from "./lib/db";
 import { asyncHandler } from "./lib/asyncHandler";
 import winesRouter from "./routes/wines";
 import scanRouter from "./routes/scan";
+import adminRouter from "./routes/admin";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3002;
@@ -18,6 +19,7 @@ app.use(express.json());
 
 app.use("/api/wines", winesRouter);
 app.use("/api/scan", scanRouter);
+app.use("/api/admin", adminRouter);
 
 app.get(
   "/api/companies",
