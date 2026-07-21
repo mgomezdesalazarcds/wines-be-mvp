@@ -86,3 +86,31 @@ model CompanyWine {
   @@index([companyId, staffPick], map: "idx_company_wines_staff")
   @@map("company_wines")
 }
+
+model ScanLog {
+  id                String   @id @default(uuid())
+  companyId         String   @map("company_id")
+  status            String
+  extractedText     String?  @map("extracted_text")
+  matchedLookupCode String?  @map("matched_lookup_code")
+  confidence        Float?
+  errorMessage      String?  @map("error_message")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@map("scan_logs")
+}
+
+/// Generic failure log for things that don't have their own table — a scan
+/// that errored out before producing a ScanLog, a search with no results.
+model FailureLog {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  source    String
+  message   String
+  context   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([companyId, source])
+  @@map("failure_logs")
+}

@@ -47,7 +47,7 @@ async function main() {
       itemName: "Cecchi Chianti D.O.C.G.",
       size: "750ML",
       section: "italy",
-      lookupCode: "86891083872",
+      lookupCode: "SEED-CECCHI-001",
       price: 22.99,
       staffPick: true,
       extraData: {
@@ -72,7 +72,7 @@ async function main() {
       itemName: "Banfi Brunello di Montalcino",
       size: "750ML",
       section: "italy",
-      lookupCode: "87199000123",
+      lookupCode: "SEED-BANFI-001",
       price: 87.99,
       staffPick: true,
       extraData: {

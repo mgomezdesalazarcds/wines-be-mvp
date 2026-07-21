@@ -76,8 +76,15 @@ async function main() {
   const rows = parseCsv(fs.readFileSync(csvPath, "utf-8"));
   console.log(`Total rows: ${rows.length}`);
 
+  const existingRows = await prisma.companyWine.findMany({
+    where: { companyId: company.id },
+    select: { lookupCode: true },
+  });
+  const existingLookupCodes = new Set(existingRows.map((r) => r.lookupCode));
+
   let created = 0;
   let reused = 0;
+  let updated = 0;
 
   for (const row of rows) {
     const itemName = cleanField(row.item_name);
@@ -85,15 +92,29 @@ async function main() {
     const lookupCode = cleanField(row.lookup_code);
     if (!itemName || !lookupCode) continue;
 
-    const isWine = isLikelyWine(itemName, cleanField(row.size));
     const price = parsePrice(row.price);
     const stockCount = parseInt(cleanField(row.stock_count), 10) || 0;
     const availability = cleanField(row.availability) || null;
 
+    // Already-known SKU: this store's own POS code already points at a
+    // specific generic Wine — just refresh price/stock, never re-run the
+    // fuzzy dedup (a different fuzzy result on a later import would silently
+    // repoint an existing listing at a different wine).
+    if (existingLookupCodes.has(lookupCode)) {
+      await prisma.companyWine.update({
+        where: { companyId_lookupCode: { companyId: company.id, lookupCode } },
+        data: { price, stockCount, availability },
+      });
+      updated++;
+      continue;
+    }
+
+    const isWine = isLikelyWine(itemName, cleanField(row.size));
+
     let wineId: string;
-    const existing = await findExistingWine(itemName, size);
-    if (existing) {
-      wineId = existing.id;
+    const existingWine = await findExistingWine(itemName, size);
+    if (existingWine) {
+      wineId = existingWine.id;
       reused++;
     } else {
       const wine = await prisma.wine.create({
@@ -103,14 +124,14 @@ async function main() {
       created++;
     }
 
-    await prisma.companyWine.upsert({
-      where: { companyId_lookupCode: { companyId: company.id, lookupCode } },
-      update: { wineId, price, stockCount, availability },
-      create: { companyId: company.id, wineId, lookupCode, price, stockCount, availability },
+    await prisma.companyWine.create({
+      data: { companyId: company.id, wineId, lookupCode, price, stockCount, availability },
     });
   }
 
-  console.log(`Done. ${created} new generic wines created, ${reused} matched to existing wines.`);
+  console.log(
+    `Done. ${updated} existing SKUs updated, ${created} new generic wines created, ${reused} new SKUs matched to existing wines.`
+  );
 }
 
 main()
