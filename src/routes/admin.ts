@@ -66,6 +66,27 @@ router.get(
 );
 
 router.get(
+  "/imports/latest/download",
+  asyncHandler(async (_req: Request, res: Response) => {
+    const companyId = await getDefaultCompanyId();
+    const record = await prisma.csvImport.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: "desc" },
+      select: { filename: true, content: true },
+    });
+    if (!record) {
+      return res.status(404).json({ error: "Todavía no se subió ningún CSV" });
+    }
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${record.filename}"`);
+    return res.send(record.content);
+  })
+);
+
+// Must come after /imports/latest/download — ":id" would otherwise swallow
+// the literal "latest" segment first.
+router.get(
   "/imports/:id/download",
   asyncHandler(async (req: Request, res: Response) => {
     const companyId = await getDefaultCompanyId();
