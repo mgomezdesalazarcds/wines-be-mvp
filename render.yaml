@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: wines-be-mvp
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: POC_SECTION
+        value: italy,spain,france
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: DEFAULT_COMPANY_SLUG
+        value: little-bros
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
