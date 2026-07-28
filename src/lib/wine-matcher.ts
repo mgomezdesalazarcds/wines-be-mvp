@@ -84,6 +84,7 @@ export interface SerializedWine {
   is_wine: boolean;
   section: string | null;
   staff_pick: boolean;
+  is_last_arrival: boolean;
   image_url: string | null;
   created_at: Date;
 }
@@ -94,6 +95,7 @@ interface CompanyWineRow {
   stockCount: number | null;
   availability: string | null;
   staffPick: boolean;
+  isLastArrival: boolean;
   imageUrl: string | null;
   createdAt: Date;
   extraData: unknown;
@@ -117,13 +119,19 @@ function serializeCompanyWine(cw: CompanyWineRow): SerializedWine {
     is_wine: cw.wine.isWine,
     section: cw.wine.section,
     staff_pick: cw.staffPick,
+    is_last_arrival: cw.isLastArrival,
     image_url: cw.imageUrl,
     created_at: cw.createdAt,
   };
 }
 
+/** Per-attribute merge, not whole-object fallback: a company that has only
+ * ever overridden `why_we_love_it` should still see every other AI-generated
+ * field from the generic wine, not lose them because `extraData` is non-null. */
 function resolveEnrichment(cw: Pick<CompanyWineRow, "extraData" | "wine">) {
-  return cw.extraData ?? cw.wine.extraData;
+  const generic = (cw.wine.extraData as Record<string, unknown> | null) ?? {};
+  const override = (cw.extraData as Record<string, unknown> | null) ?? {};
+  return { ...generic, ...override };
 }
 
 const WINE_SELECT = {
@@ -139,6 +147,19 @@ export async function getStaffPicks(companyId: string, sections?: string[]) {
     where: {
       companyId,
       staffPick: true,
+      wine: { isWine: true, ...(sections?.length ? { section: { in: sections } } : {}) },
+    },
+    include: { wine: { select: WINE_SELECT } },
+    orderBy: { wine: { itemName: "asc" } },
+  });
+  return rows.map(serializeCompanyWine);
+}
+
+export async function getNewArrivals(companyId: string, sections?: string[]) {
+  const rows = await prisma.companyWine.findMany({
+    where: {
+      companyId,
+      isLastArrival: true,
       wine: { isWine: true, ...(sections?.length ? { section: { in: sections } } : {}) },
     },
     include: { wine: { select: WINE_SELECT } },
@@ -191,16 +212,17 @@ async function fuzzySearchCompanyWines(
       is_wine: boolean;
       section: string | null;
       staff_pick: boolean;
+      is_last_arrival: boolean;
       image_url: string | null;
       created_at: Date;
       sim: number;
     }[]
   >`
     SELECT lookup_code, item_name, price, size, stock_count, availability,
-      is_wine, section, staff_pick, image_url, created_at, sim
+      is_wine, section, staff_pick, is_last_arrival, image_url, created_at, sim
     FROM (
       SELECT cw.lookup_code, w.item_name, cw.price, w.size, cw.stock_count, cw.availability,
-        w.is_wine, w.section, cw.staff_pick, cw.image_url, cw.created_at,
+        w.is_wine, w.section, cw.staff_pick, cw.is_last_arrival, cw.image_url, cw.created_at,
         GREATEST(${simExpr}) AS sim
       FROM company_wines cw
       JOIN wines w ON w.id = cw.wine_id
@@ -223,6 +245,7 @@ async function fuzzySearchCompanyWines(
     is_wine: r.is_wine,
     section: r.section,
     staff_pick: r.staff_pick,
+    is_last_arrival: r.is_last_arrival,
     image_url: r.image_url,
     created_at: r.created_at,
     matchConfidence: r.sim,
@@ -246,6 +269,54 @@ export async function getWineDetail(companyId: string, lookupCode: string) {
   if (!cw) return null;
 
   return { wine: serializeCompanyWine(cw), enrichment: resolveEnrichment(cw) };
+}
+
+export interface UpdateCompanyWineInput {
+  price?: number;
+  stockCount?: number | null;
+  availability?: string | null;
+  staffPick?: boolean;
+  isLastArrival?: boolean;
+  imageUrl?: string | null;
+  /** Only the attributes being changed — merged over whatever the company
+   * already overrode, not a replacement of the whole object. Any key not
+   * present here keeps falling back to the generic Wine's value. */
+  extraData?: Record<string, unknown>;
+}
+
+/** Edits one company's listing of a wine. Columns that belong to the
+ * relation (price, stock, availability, staffPick, isLastArrival, imageUrl)
+ * are written directly; `extraData` entries are merged into the relation's
+ * own `extraData` object so they take priority over the generic wine's copy
+ * without discarding fields the company hasn't touched. */
+export async function updateCompanyWine(
+  companyId: string,
+  lookupCode: string,
+  input: UpdateCompanyWineInput
+) {
+  const existing = await prisma.companyWine.findUnique({
+    where: { companyId_lookupCode: { companyId, lookupCode } },
+  });
+  if (!existing) return null;
+
+  const { extraData, ...relationFields } = input;
+
+  await prisma.companyWine.update({
+    where: { id: existing.id },
+    data: {
+      ...relationFields,
+      ...(extraData
+        ? {
+            extraData: {
+              ...((existing.extraData as Record<string, unknown> | null) ?? {}),
+              ...extraData,
+            } as Prisma.InputJsonValue,
+          }
+        : {}),
+    },
+  });
+
+  return getWineDetail(companyId, lookupCode);
 }
 
 const STRONG_MATCH_CONFIDENCE = 0.5;

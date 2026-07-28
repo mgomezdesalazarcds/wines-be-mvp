@@ -1,6 +1,14 @@
 import { Router, Request, Response } from "express";
 import { getDefaultCompanyId } from "../lib/db";
-import { searchWines, getStaffPicks, listWines, getWineDetail } from "../lib/wine-matcher";
+import {
+  searchWines,
+  getStaffPicks,
+  getNewArrivals,
+  listWines,
+  getWineDetail,
+  updateCompanyWine,
+  UpdateCompanyWineInput,
+} from "../lib/wine-matcher";
 import { requiredMatchTokens } from "../lib/wine-classifier";
 import { asyncHandler } from "../lib/asyncHandler";
 
@@ -16,11 +24,17 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
   const companyId = await getDefaultCompanyId();
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const staffOnly = req.query.staff === "1";
+  const arrivalsOnly = req.query.arrivals === "1";
   const querySection = typeof req.query.section === "string" ? req.query.section : null;
   const sections = querySection ? [querySection] : DEFAULT_SECTIONS;
 
   if (staffOnly) {
     const wines = await getStaffPicks(companyId, sections);
+    return res.json({ wines });
+  }
+
+  if (arrivalsOnly) {
+    const wines = await getNewArrivals(companyId, sections);
     return res.json({ wines });
   }
 
@@ -49,6 +63,68 @@ router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
 
   if (!result) {
     return res.status(404).json({ error: "Vino no encontrado" });
+  }
+
+  return res.json(result);
+}));
+
+router.patch("/:id", asyncHandler(async (req: Request, res: Response) => {
+  const companyId = await getDefaultCompanyId();
+  const lookupCode = String(req.params.id);
+  const body = req.body ?? {};
+
+  const input: UpdateCompanyWineInput = {};
+
+  if (body.price !== undefined) {
+    if (typeof body.price !== "number") {
+      return res.status(400).json({ error: "price must be a number" });
+    }
+    input.price = body.price;
+  }
+  if (body.stockCount !== undefined) {
+    if (body.stockCount !== null && typeof body.stockCount !== "number") {
+      return res.status(400).json({ error: "stockCount must be a number or null" });
+    }
+    input.stockCount = body.stockCount;
+  }
+  if (body.availability !== undefined) {
+    if (body.availability !== null && typeof body.availability !== "string") {
+      return res.status(400).json({ error: "availability must be a string or null" });
+    }
+    input.availability = body.availability;
+  }
+  if (body.staffPick !== undefined) {
+    if (typeof body.staffPick !== "boolean") {
+      return res.status(400).json({ error: "staffPick must be a boolean" });
+    }
+    input.staffPick = body.staffPick;
+  }
+  if (body.isLastArrival !== undefined) {
+    if (typeof body.isLastArrival !== "boolean") {
+      return res.status(400).json({ error: "isLastArrival must be a boolean" });
+    }
+    input.isLastArrival = body.isLastArrival;
+  }
+  if (body.imageUrl !== undefined) {
+    if (body.imageUrl !== null && typeof body.imageUrl !== "string") {
+      return res.status(400).json({ error: "imageUrl must be a string or null" });
+    }
+    input.imageUrl = body.imageUrl;
+  }
+  if (body.extraData !== undefined) {
+    if (typeof body.extraData !== "object" || body.extraData === null || Array.isArray(body.extraData)) {
+      return res.status(400).json({ error: "extraData must be an object" });
+    }
+    input.extraData = body.extraData;
+  }
+
+  if (Object.keys(input).length === 0) {
+    return res.status(400).json({ error: "No fields to update" });
+  }
+
+  const result = await updateCompanyWine(companyId, lookupCode, input);
+  if (!result) {
+    return res.status(404).json({ error: "Wine not found" });
   }
 
   return res.json(result);
