@@ -7,7 +7,10 @@ import { findExistingWine } from "./wine-matcher";
 // pooler averages ~1.1s/row — 35,979 rows sequentially would take ~11
 // hours. Batching many rows into one UPDATE...FROM(VALUES...) statement
 // turns that into one round-trip per chunk instead of one per row.
-const UPDATE_CHUNK_SIZE = 1000;
+// Postgres's real limit is 32,767 bind params per statement (confirmed by
+// hitting it at chunk size 9000 => 36,000 params); 4 params/row caps this
+// around 8,191 — stay comfortably under that.
+const UPDATE_CHUNK_SIZE = 8000;
 
 interface CsvRow {
   lookup_code: string;
@@ -81,13 +84,19 @@ export async function importCsvForCompany(
   companyId: string,
   csvContent: string
 ): Promise<ImportSummary> {
-  const rawRows = parseCsv(csvContent);
+  const importStartedAt = Date.now();
 
+  const parseStartedAt = Date.now();
+  const rawRows = parseCsv(csvContent);
+  console.log(`CSV import timing: parse took ${Date.now() - parseStartedAt}ms (${rawRows.length} rows)`);
+
+  const lookupFetchStartedAt = Date.now();
   const existingRows = await prisma.companyWine.findMany({
     where: { companyId },
     select: { lookupCode: true },
   });
   const existingLookupCodes = new Set(existingRows.map((r) => r.lookupCode));
+  console.log(`CSV import timing: existing lookup codes fetch took ${Date.now() - lookupFetchStartedAt}ms (${existingLookupCodes.size} codes)`);
 
   let skipped = 0;
   const toUpdate: ParsedRow[] = [];
@@ -115,7 +124,9 @@ export async function importCsvForCompany(
 
   // Already-known SKUs: one UPDATE...FROM(VALUES...) per chunk instead of
   // one round-trip per row (see UPDATE_CHUNK_SIZE above for why).
+  const updateStartedAt = Date.now();
   for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK_SIZE) {
+    const chunkStartedAt = Date.now();
     const chunk = toUpdate.slice(i, i + UPDATE_CHUNK_SIZE);
     const values = chunk.map(
       (r) => Prisma.sql`(${r.lookupCode}, ${r.price}::float8, ${r.stockCount}::int, ${r.availability})`
@@ -126,11 +137,14 @@ export async function importCsvForCompany(
       FROM (VALUES ${Prisma.join(values)}) AS v(lookup_code, price, stock_count, availability)
       WHERE cw.company_id = ${companyId} AND cw.lookup_code = v.lookup_code
     `;
+    console.log(`CSV import timing: update chunk ${i / UPDATE_CHUNK_SIZE + 1} (${chunk.length} rows) took ${Date.now() - chunkStartedAt}ms`);
   }
+  console.log(`CSV import timing: all updates took ${Date.now() - updateStartedAt}ms total (${toUpdate.length} rows)`);
 
   // Genuinely new SKUs: still one at a time — each needs its own fuzzy
   // dedup decision against the generic catalog, which can't be batched the
   // same way. Normally a small set on a routine re-import.
+  const createStartedAt = Date.now();
   let created = 0;
   let reused = 0;
   for (const row of toCreate) {
@@ -160,6 +174,9 @@ export async function importCsvForCompany(
       },
     });
   }
+  console.log(`CSV import timing: new SKU creation took ${Date.now() - createStartedAt}ms total (${toCreate.length} rows)`);
+
+  console.log(`CSV import timing: total import took ${Date.now() - importStartedAt}ms`);
 
   return { totalRows: rawRows.length, created, reused, updated: toUpdate.length, skipped };
 }

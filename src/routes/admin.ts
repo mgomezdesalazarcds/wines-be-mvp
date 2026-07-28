@@ -15,7 +15,7 @@ router.post(
 
     const file = req.file;
     if (!file) {
-      return res.status(400).json({ error: "No se recibió el archivo" });
+      return res.status(400).json({ error: "No file received" });
     }
 
     const content = file.buffer.toString("utf-8");
@@ -36,7 +36,7 @@ router.post(
     });
 
     return res.json({
-      message: `Importado: ${summary.updated} actualizados, ${summary.created} vinos nuevos, ${summary.reused} SKUs nuevos sobre vinos existentes, ${summary.skipped} filas salteadas.`,
+      message: `Import complete: ${summary.updated} updated, ${summary.created} new wines, ${summary.reused} new SKUs on existing wines, ${summary.skipped} rows skipped.`,
       summary,
       import: record,
     });
@@ -75,7 +75,7 @@ router.get(
       select: { filename: true, content: true },
     });
     if (!record) {
-      return res.status(404).json({ error: "Todavía no se subió ningún CSV" });
+      return res.status(404).json({ error: "No CSV has been uploaded yet" });
     }
 
     res.setHeader("Content-Type", "text/csv");
@@ -95,7 +95,7 @@ router.get(
       select: { filename: true, content: true },
     });
     if (!record) {
-      return res.status(404).json({ error: "Import no encontrado" });
+      return res.status(404).json({ error: "Import not found" });
     }
 
     res.setHeader("Content-Type", "text/csv");
