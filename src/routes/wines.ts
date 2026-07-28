@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import multer from "multer";
 import { getDefaultCompanyId } from "../lib/db";
 import {
   searchWines,
@@ -9,10 +10,15 @@ import {
   updateCompanyWine,
   UpdateCompanyWineInput,
 } from "../lib/wine-matcher";
+import { uploadWineImage } from "../lib/storage";
 import { requiredMatchTokens } from "../lib/wine-classifier";
 import { asyncHandler } from "../lib/asyncHandler";
 
 const router = Router();
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
 const DEFAULT_SECTIONS = (process.env.POC_SECTION || "italy")
   .split(",")
   .map((s) => s.trim())
@@ -129,5 +135,33 @@ router.patch("/:id", asyncHandler(async (req: Request, res: Response) => {
 
   return res.json(result);
 }));
+
+router.post(
+  "/:id/image",
+  imageUpload.single("image"),
+  asyncHandler(async (req: Request, res: Response) => {
+    const companyId = await getDefaultCompanyId();
+    const lookupCode = String(req.params.id);
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: "No file received" });
+    }
+    if (!file.mimetype.startsWith("image/")) {
+      return res.status(400).json({ error: "File must be an image" });
+    }
+
+    const extension = file.mimetype.split("/")[1] || "jpg";
+    const filename = `${companyId}-${lookupCode}.${extension}`;
+    const imageUrl = await uploadWineImage(filename, file.buffer, file.mimetype);
+
+    const result = await updateCompanyWine(companyId, lookupCode, { imageUrl });
+    if (!result) {
+      return res.status(404).json({ error: "Wine not found" });
+    }
+
+    return res.json(result);
+  })
+);
 
 export default router;
