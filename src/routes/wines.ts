@@ -13,6 +13,7 @@ import {
 import { uploadWineImage } from "../lib/storage";
 import { requiredMatchTokens } from "../lib/wine-classifier";
 import { asyncHandler } from "../lib/asyncHandler";
+import { requireAuth } from "../lib/auth";
 
 const router = Router();
 const imageUpload = multer({
@@ -74,8 +75,8 @@ router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   return res.json(result);
 }));
 
-router.patch("/:id", asyncHandler(async (req: Request, res: Response) => {
-  const companyId = await getDefaultCompanyId();
+router.patch("/:id", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+  const companyId = req.auth!.companyId;
   const lookupCode = String(req.params.id);
   const body = req.body ?? {};
 
@@ -138,9 +139,10 @@ router.patch("/:id", asyncHandler(async (req: Request, res: Response) => {
 
 router.post(
   "/:id/image",
+  requireAuth,
   imageUpload.single("image"),
   asyncHandler(async (req: Request, res: Response) => {
-    const companyId = await getDefaultCompanyId();
+    const companyId = req.auth!.companyId;
     const lookupCode = String(req.params.id);
 
     const file = req.file;

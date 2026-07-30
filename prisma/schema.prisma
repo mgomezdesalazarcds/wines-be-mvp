@@ -18,8 +18,26 @@ model Company {
   createdAt DateTime @default(now()) @map("created_at")
 
   wines CompanyWine[]
+  users User[]
 
   @@map("companies")
+}
+
+/// A person who can log in to manage one company's listings (edit wines,
+/// upload CSVs/photos). Scoped to a single company — there's no
+/// cross-company role today, so a login's companyId is the only tenant
+/// check every protected endpoint needs.
+model User {
+  id           String   @id @default(uuid())
+  companyId    String   @map("company_id")
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("users")
 }
 
 /// The generic wine catalog — one row per real-world wine, shared across every

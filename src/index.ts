@@ -6,6 +6,7 @@ import { asyncHandler } from "./lib/asyncHandler";
 import winesRouter from "./routes/wines";
 import scanRouter from "./routes/scan";
 import adminRouter from "./routes/admin";
+import authRouter from "./routes/auth";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3002;
@@ -20,6 +21,7 @@ app.use(express.json());
 app.use("/api/wines", winesRouter);
 app.use("/api/scan", scanRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/auth", authRouter);
 
 app.get(
   "/api/companies",
