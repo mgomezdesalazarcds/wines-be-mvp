@@ -14,7 +14,8 @@
     "seed": "prisma db seed",
     "import": "tsx scripts/import-csv.ts",
     "migrate-legacy": "tsx scripts/migrate-legacy-wines.ts",
-    "create-user": "tsx scripts/create-user.ts"
+    "create-user": "tsx scripts/create-user.ts",
+    "create-super-admin": "tsx scripts/create-super-admin.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

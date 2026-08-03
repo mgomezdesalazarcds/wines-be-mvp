@@ -23,18 +23,29 @@ model Company {
   @@map("companies")
 }
 
-/// A person who can log in to manage one company's listings (edit wines,
-/// upload CSVs/photos). Scoped to a single company — there's no
-/// cross-company role today, so a login's companyId is the only tenant
-/// check every protected endpoint needs.
+/// ADMIN is scoped to one company (edit wines, upload CSVs/photos, and
+/// manage that company's own users once that's built). SUPER_ADMIN manages
+/// companies and users across the whole system instead, so it isn't scoped
+/// to any one company. More granular company-level roles (e.g. an
+/// employee who can't manage users) can be added later without another
+/// migration touching this shape.
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+}
+
+/// A person who can log in. `role` decides what they can do; `companyId` is
+/// the tenant check every company-scoped endpoint needs — null for
+/// SUPER_ADMIN, required for ADMIN.
 model User {
   id           String   @id @default(uuid())
-  companyId    String   @map("company_id")
+  companyId    String?  @map("company_id")
+  role         Role     @default(ADMIN)
   email        String   @unique
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  company Company @relation(fields: [companyId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
   @@map("users")

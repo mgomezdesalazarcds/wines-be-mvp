@@ -21,10 +21,14 @@ router.post(
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    const token = signToken({ userId: user.id, companyId: user.companyId });
+    const token = signToken({
+      userId: user.id,
+      companyId: user.companyId,
+      role: user.role,
+    });
     return res.json({
       token,
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, role: user.role },
       company: user.company,
     });
   })
@@ -44,7 +48,7 @@ router.get(
     }
 
     return res.json({
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, role: user.role },
       company: user.company,
     });
   })

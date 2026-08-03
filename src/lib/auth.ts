@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Role } from "@prisma/client";
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -12,7 +13,9 @@ const TOKEN_EXPIRY = "7d";
 
 export interface TokenPayload {
   userId: string;
-  companyId: string;
+  /** Null for super admins — they aren't scoped to one company. */
+  companyId: string | null;
+  role: Role;
 }
 
 export function hashPassword(password: string): Promise<string> {
@@ -39,10 +42,10 @@ declare global {
   }
 }
 
-/** Protects a route with a company-scoped login: reads `Authorization:
- * Bearer <token>`, verifies it, and attaches `req.auth` (userId +
- * companyId) for the handler to use instead of the old hardcoded
- * getDefaultCompanyId(). */
+/** Verifies `Authorization: Bearer <token>` and attaches `req.auth`. On its
+ * own this only proves "some valid login" — routes that need a specific
+ * kind of login (company-scoped vs. super admin) chain requireCompanyScope
+ * or requireSuperAdmin after it. */
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
@@ -56,4 +59,22 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
+}
+
+/** Must run after requireAuth. Rejects super admin tokens (companyId is
+ * null for them) on routes that operate on one company's data. */
+export function requireCompanyScope(req: Request, res: Response, next: NextFunction) {
+  if (!req.auth?.companyId) {
+    return res.status(403).json({ error: "This account is not scoped to a company" });
+  }
+  next();
+}
+
+/** Must run after requireAuth. Gates the company/user management endpoints
+ * to super admin logins only. */
+export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (req.auth?.role !== Role.SUPER_ADMIN) {
+    return res.status(403).json({ error: "Super admin access required" });
+  }
+  next();
 }

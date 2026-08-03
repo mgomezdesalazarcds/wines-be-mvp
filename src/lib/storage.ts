@@ -1,7 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-const BUCKET = "wine-images";
-
 function getClient() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,31 +9,48 @@ function getClient() {
   return createClient(url, key);
 }
 
-async function ensureBucket(): Promise<void> {
+async function ensureBucket(bucket: string): Promise<void> {
   const client = getClient();
   const { data: buckets } = await client.storage.listBuckets();
-  if (buckets?.some((b) => b.name === BUCKET)) return;
+  if (buckets?.some((b) => b.name === bucket)) return;
 
-  const { error } = await client.storage.createBucket(BUCKET, { public: true });
+  const { error } = await client.storage.createBucket(bucket, { public: true });
   if (error) throw error;
 }
 
-/** Uploads a company's wine photo to Supabase Storage and returns its public
- * URL. `upsert: true` so re-uploading the same wine's photo overwrites the
- * old file instead of accumulating orphaned images. */
-export async function uploadWineImage(
+/** Uploads a file to a public Supabase Storage bucket and returns its public
+ * URL. `upsert: true` so re-uploading the same filename overwrites the old
+ * file instead of accumulating orphans. */
+async function uploadFile(
+  bucket: string,
   filename: string,
   fileBuffer: Buffer,
   contentType: string
 ): Promise<string> {
-  await ensureBucket();
+  await ensureBucket(bucket);
   const client = getClient();
 
   const { error } = await client.storage
-    .from(BUCKET)
+    .from(bucket)
     .upload(filename, fileBuffer, { contentType, upsert: true });
   if (error) throw error;
 
-  const { data } = client.storage.from(BUCKET).getPublicUrl(filename);
+  const { data } = client.storage.from(bucket).getPublicUrl(filename);
   return data.publicUrl;
+}
+
+export function uploadWineImage(
+  filename: string,
+  fileBuffer: Buffer,
+  contentType: string
+): Promise<string> {
+  return uploadFile("wine-images", filename, fileBuffer, contentType);
+}
+
+export function uploadCompanyLogo(
+  filename: string,
+  fileBuffer: Buffer,
+  contentType: string
+): Promise<string> {
+  return uploadFile("company-logos", filename, fileBuffer, contentType);
 }

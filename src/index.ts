@@ -7,6 +7,8 @@ import winesRouter from "./routes/wines";
 import scanRouter from "./routes/scan";
 import adminRouter from "./routes/admin";
 import authRouter from "./routes/auth";
+import companyRouter from "./routes/company";
+import superAdminRouter from "./routes/super-admin";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3002;
@@ -22,6 +24,8 @@ app.use("/api/wines", winesRouter);
 app.use("/api/scan", scanRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/company", companyRouter);
+app.use("/api/super-admin", superAdminRouter);
 
 app.get(
   "/api/companies",
