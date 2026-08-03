@@ -45,10 +45,28 @@ model User {
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  company Company? @relation(fields: [companyId], references: [id])
+  company     Company?     @relation(fields: [companyId], references: [id])
+  inviteToken InviteToken?
 
   @@index([companyId])
   @@map("users")
+}
+
+/// A one-time link letting a newly-created user set their own password
+/// instead of the super admin choosing it for them. Created alongside the
+/// User (with an unusable random passwordHash placeholder) and deleted the
+/// moment it's redeemed — `onDelete: Cascade` also cleans it up if the user
+/// is deleted before ever accepting.
+model InviteToken {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("invite_tokens")
 }
 
 /// The generic wine catalog — one row per real-world wine, shared across every

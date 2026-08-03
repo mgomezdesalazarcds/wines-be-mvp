@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { Role } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { requireAuth, requireSuperAdmin, hashPassword } from "../lib/auth";
+import { createInviteToken, randomUnusablePassword } from "../lib/invites";
 import { asyncHandler } from "../lib/asyncHandler";
 
 const router = Router();
@@ -99,16 +100,18 @@ router.get(
   })
 );
 
+// No password field here on purpose — the super admin never sees or picks
+// a user's password. This creates the account with an unusable placeholder
+// hash and an invite token; the returned `inviteToken` is only ever
+// available here, in this response, for the caller to share with the
+// invitee (e.g. as a copyable /accept-invite/<token> link).
 router.post(
   "/users",
   asyncHandler(async (req: Request, res: Response) => {
-    const { email, password, companyId, isSuperAdmin } = req.body ?? {};
+    const { email, companyId, isSuperAdmin } = req.body ?? {};
 
     if (typeof email !== "string" || !email.trim()) {
       return res.status(400).json({ error: "email is required" });
-    }
-    if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({ error: "password must be at least 8 characters" });
     }
     const makeSuperAdmin = isSuperAdmin === true;
 
@@ -131,7 +134,7 @@ router.post(
       return res.status(409).json({ error: "A user with this email already exists" });
     }
 
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await hashPassword(randomUnusablePassword());
     const user = await prisma.user.create({
       data: {
         email: normalizedEmail,
@@ -141,7 +144,8 @@ router.post(
       },
       select: USER_SELECT,
     });
-    return res.status(201).json({ user });
+    const inviteToken = await createInviteToken(user.id);
+    return res.status(201).json({ user, inviteToken });
   })
 );
 
