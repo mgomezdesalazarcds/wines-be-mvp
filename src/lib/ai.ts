@@ -194,6 +194,105 @@ Return only a JSON array.`,
   }));
 }
 
+export interface EnrichmentData {
+  tasting_notes: string;
+  taste_profile: string[];
+  pairs_well_with: string[];
+  variety: string | null;
+  region: string | null;
+  country: string | null;
+  body: number;
+  acidity: number;
+  tannin: number;
+  sweetness: number;
+  dryness_label: string;
+  why_we_love_it: string;
+  from_the_team: string;
+  provenance: "verified" | "inferred";
+}
+
+const ENRICHMENT_FIELDS_PROMPT =
+  'tasting_notes (2-3 sentences), taste_profile (array of 3 flavor words), pairs_well_with (array of 3 foods), variety, region, country, body/acidity/tannin/sweetness (1-5 integers), dryness_label (e.g. "Dry"), why_we_love_it (1 friendly sentence), from_the_team (1 sentence staff quote), provenance ("verified" or "inferred")';
+
+function parseEnrichmentRow(parsed: Record<string, unknown>): EnrichmentData {
+  return {
+    tasting_notes: String(parsed.tasting_notes ?? "A well-crafted wine worth exploring."),
+    taste_profile: Array.isArray(parsed.taste_profile)
+      ? parsed.taste_profile.map(String)
+      : ["Fruit", "Earth", "Spice"],
+    pairs_well_with: Array.isArray(parsed.pairs_well_with)
+      ? parsed.pairs_well_with.map(String)
+      : ["Pasta", "Cheese", "Grilled meats"],
+    variety: parsed.variety != null ? String(parsed.variety) : null,
+    region: parsed.region != null ? String(parsed.region) : null,
+    country: parsed.country != null ? String(parsed.country) : null,
+    body: Math.min(5, Math.max(1, Number(parsed.body ?? 3))),
+    acidity: Math.min(5, Math.max(1, Number(parsed.acidity ?? 3))),
+    tannin: Math.min(5, Math.max(1, Number(parsed.tannin ?? 3))),
+    sweetness: Math.min(5, Math.max(1, Number(parsed.sweetness ?? 1))),
+    dryness_label: String(parsed.dryness_label ?? "Dry"),
+    why_we_love_it: String(
+      parsed.why_we_love_it ?? "A customer favorite from our Italian selection."
+    ),
+    from_the_team: String(parsed.from_the_team ?? "Great value and easy to enjoy."),
+    provenance: parsed.provenance === "verified" ? "verified" : "inferred",
+  };
+}
+
+export interface WineClassification {
+  isWine: boolean;
+  section: string | null;
+  enrichment: EnrichmentData | null;
+}
+
+/** Single-pass classifier: decides is_wine, then section, then (if it
+ * qualifies) generates full enrichment — one Gemini call per batch. Ported
+ * from wines-be-node's classifyAndEnrichWines; keyed on Wine.id here since
+ * the generic Wine catalog has no lookup_code of its own in this schema
+ * (that lives on CompanyWine, per-company), and takes no price for the same
+ * reason. The AI's is_wine call overrides the cheap keyword heuristic used
+ * at CSV-import time. */
+export async function classifyAndEnrichWines(
+  wines: { id: string; itemName: string }[],
+  sections: string[]
+): Promise<Map<string, WineClassification>> {
+  const list = wines.map((w) => `${w.id}\t${w.itemName}`).join("\n");
+
+  const sectionEnum = [...sections.map((s) => `"${s}"`), '"other"'].join(" | ");
+  const sectionList = sections.join(", ");
+
+  const content = await generateText(
+    `You are a liquor store inventory classifier and sommelier. Each line below is an abbreviated POS item as "id<TAB>item_name".
+
+For each item decide, in order:
+1. is_wine: true only if this is an actual wine bottle — not a spirit, beer, cider, hard seltzer, or wine cooler/RTD.
+2. section: only if is_wine is true, infer the country of origin from the brand/name (use your knowledge of real wine producers and appellations — abbreviated names may be misleading, e.g. "Concha y Toro" and "Toro de Piedra" are Chilean despite containing "Toro"). Use one of [${sectionList}] only if genuinely confident; otherwise "other". If is_wine is false, section must be "other".
+3. enrichment: only if is_wine is true AND section is one of [${sectionList}], generate: ${ENRICHMENT_FIELDS_PROMPT}. Otherwise enrichment must be null.
+Be honest — don't invent specific vineyard details. Keep notes practical for a store shopper.
+
+Return ONLY a JSON array, one object per item: {"id": string, "is_wine": boolean, "section": ${sectionEnum}, "enrichment": {...} | null}.
+
+${list}`,
+    true
+  );
+
+  const parsed = parseJsonArrayFromText(content) as {
+    id: string;
+    is_wine: boolean;
+    section: string;
+    enrichment: Record<string, unknown> | null;
+  }[];
+
+  const result = new Map<string, WineClassification>();
+  for (const row of parsed) {
+    const isWine = Boolean(row.is_wine);
+    const section = isWine && sections.includes(row.section) ? row.section : null;
+    const enrichment = isWine && section && row.enrichment ? parseEnrichmentRow(row.enrichment) : null;
+    result.set(String(row.id), { isWine, section, enrichment });
+  }
+  return result;
+}
+
 export interface LabelDisambiguationInput {
   producer?: string;
   wineName?: string;

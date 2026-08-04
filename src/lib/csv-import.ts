@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { cleanField, parsePrice, isLikelyWine, normalizeSize } from "./wine-classifier";
 import { findExistingWine } from "./wine-matcher";
+import { classifyAndEnrichPendingWines } from "./enrichment";
 
 // Measured: a single companyWine.update() over this Supabase project's
 // pooler averages ~1.1s/row — 35,979 rows sequentially would take ~11
@@ -177,6 +178,15 @@ export async function importCsvForCompany(
   console.log(`CSV import timing: new SKU creation took ${Date.now() - createStartedAt}ms total (${toCreate.length} rows)`);
 
   console.log(`CSV import timing: total import took ${Date.now() - importStartedAt}ms`);
+
+  // Fire-and-forget: classifies section/is_wine and generates enrichment for
+  // any wine still unreviewed by AI. Not awaited — this can take minutes at
+  // Gemini's rate limits and the import response shouldn't wait on it (see
+  // enrichment.ts for why it's still safe to just let it run in the
+  // background of this same process).
+  classifyAndEnrichPendingWines().catch((err) => {
+    console.error("Classify/enrich pass failed:", err);
+  });
 
   return { totalRows: rawRows.length, created, reused, updated: toUpdate.length, skipped };
 }
