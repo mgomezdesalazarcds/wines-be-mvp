@@ -78,6 +78,7 @@ export interface SerializedWine {
   lookup_code: string;
   item_name: string;
   price: number;
+  sale: number | null;
   size: string | null;
   stock_count: number | null;
   availability: string | null;
@@ -92,6 +93,7 @@ export interface SerializedWine {
 interface CompanyWineRow {
   lookupCode: string;
   price: number;
+  sale: number | null;
   stockCount: number | null;
   availability: string | null;
   staffPick: boolean;
@@ -113,6 +115,7 @@ function serializeCompanyWine(cw: CompanyWineRow): SerializedWine {
     lookup_code: cw.lookupCode,
     item_name: cw.wine.itemName,
     price: cw.price,
+    sale: cw.sale,
     size: cw.wine.size,
     stock_count: cw.stockCount,
     availability: cw.availability,
@@ -206,6 +209,7 @@ async function fuzzySearchCompanyWines(
       lookup_code: string;
       item_name: string;
       price: number;
+      sale: number | null;
       size: string | null;
       stock_count: number | null;
       availability: string | null;
@@ -218,10 +222,10 @@ async function fuzzySearchCompanyWines(
       sim: number;
     }[]
   >`
-    SELECT lookup_code, item_name, price, size, stock_count, availability,
+    SELECT lookup_code, item_name, price, sale, size, stock_count, availability,
       is_wine, section, staff_pick, is_last_arrival, image_url, created_at, sim
     FROM (
-      SELECT cw.lookup_code, w.item_name, cw.price, w.size, cw.stock_count, cw.availability,
+      SELECT cw.lookup_code, w.item_name, cw.price, cw.sale, w.size, cw.stock_count, cw.availability,
         w.is_wine, w.section, cw.staff_pick, cw.is_last_arrival, cw.image_url, cw.created_at,
         GREATEST(${simExpr}) AS sim
       FROM company_wines cw
@@ -239,6 +243,7 @@ async function fuzzySearchCompanyWines(
     lookup_code: r.lookup_code,
     item_name: r.item_name,
     price: r.price,
+    sale: r.sale,
     size: r.size,
     stock_count: r.stock_count,
     availability: r.availability,
@@ -273,6 +278,7 @@ export async function getWineDetail(companyId: string, lookupCode: string) {
 
 export interface UpdateCompanyWineInput {
   price?: number;
+  sale?: number | null;
   stockCount?: number | null;
   availability?: string | null;
   staffPick?: boolean;

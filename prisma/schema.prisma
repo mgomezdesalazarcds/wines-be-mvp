@@ -119,6 +119,7 @@ model CompanyWine {
   wineId        String   @map("wine_id")
   lookupCode    String   @map("lookup_code")
   price         Float
+  sale          Float?
   stockCount    Int?     @map("stock_count")
   availability  String?
   staffPick     Boolean  @default(false) @map("staff_pick")

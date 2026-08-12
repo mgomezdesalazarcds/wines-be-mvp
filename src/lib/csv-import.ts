@@ -17,6 +17,7 @@ interface CsvRow {
   lookup_code: string;
   item_name: string;
   price: string;
+  sale: string;
   size: string;
   stock_count: string;
   availability: string;
@@ -77,6 +78,7 @@ interface ParsedRow {
   itemName: string;
   size: string | null;
   price: number;
+  sale: number | null;
   stockCount: number;
   availability: string | null;
 }
@@ -111,11 +113,14 @@ export async function importCsvForCompany(
       continue;
     }
 
+    const saleValue = parsePrice(row.sale);
+
     const parsed: ParsedRow = {
       lookupCode,
       itemName,
       size: normalizeSize(row.size),
       price: parsePrice(row.price),
+      sale: saleValue > 0 ? saleValue : null,
       stockCount: parseInt(cleanField(row.stock_count), 10) || 0,
       availability: cleanField(row.availability) || null,
     };
@@ -130,12 +135,12 @@ export async function importCsvForCompany(
     const chunkStartedAt = Date.now();
     const chunk = toUpdate.slice(i, i + UPDATE_CHUNK_SIZE);
     const values = chunk.map(
-      (r) => Prisma.sql`(${r.lookupCode}, ${r.price}::float8, ${r.stockCount}::int, ${r.availability})`
+      (r) => Prisma.sql`(${r.lookupCode}, ${r.price}::float8, ${r.sale}::float8, ${r.stockCount}::int, ${r.availability})`
     );
     await prisma.$executeRaw`
       UPDATE company_wines AS cw
-      SET price = v.price, stock_count = v.stock_count, availability = v.availability
-      FROM (VALUES ${Prisma.join(values)}) AS v(lookup_code, price, stock_count, availability)
+      SET price = v.price, sale = v.sale, stock_count = v.stock_count, availability = v.availability
+      FROM (VALUES ${Prisma.join(values)}) AS v(lookup_code, price, sale, stock_count, availability)
       WHERE cw.company_id = ${companyId} AND cw.lookup_code = v.lookup_code
     `;
     console.log(`CSV import timing: update chunk ${i / UPDATE_CHUNK_SIZE + 1} (${chunk.length} rows) took ${Date.now() - chunkStartedAt}ms`);
@@ -170,6 +175,7 @@ export async function importCsvForCompany(
         wineId,
         lookupCode: row.lookupCode,
         price: row.price,
+        sale: row.sale,
         stockCount: row.stockCount,
         availability: row.availability,
       },

@@ -88,6 +88,12 @@ router.patch("/:id", requireAuth, requireCompanyScope, asyncHandler(async (req: 
     }
     input.price = body.price;
   }
+  if (body.sale !== undefined) {
+    if (body.sale !== null && typeof body.sale !== "number") {
+      return res.status(400).json({ error: "sale must be a number or null" });
+    }
+    input.sale = body.sale;
+  }
   if (body.stockCount !== undefined) {
     if (body.stockCount !== null && typeof body.stockCount !== "number") {
       return res.status(400).json({ error: "stockCount must be a number or null" });
