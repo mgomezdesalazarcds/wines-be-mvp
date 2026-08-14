@@ -10,6 +10,7 @@ import authRouter from "./routes/auth";
 import companyRouter from "./routes/company";
 import superAdminRouter from "./routes/super-admin";
 import invitesRouter from "./routes/invites";
+import analyticsRouter from "./routes/analytics";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3002;
@@ -28,6 +29,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/company", companyRouter);
 app.use("/api/super-admin", superAdminRouter);
 app.use("/api/invites", invitesRouter);
+app.use("/api/analytics", analyticsRouter);
 
 app.get(
   "/api/companies",

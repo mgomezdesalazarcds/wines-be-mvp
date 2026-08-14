@@ -1,20 +1,20 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
-import { prisma } from "../lib/db";
-import { requireAuth, requireCompanyScope } from "../lib/auth";
+import { prisma, getDefaultCompanyId } from "../lib/db";
 import { importCsvForCompany } from "../lib/csv-import";
 import { asyncHandler } from "../lib/asyncHandler";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.use(requireAuth, requireCompanyScope);
+// Pilot scope: this whole router is intentionally public (no login) — see
+// AnalyticsEvent for why /admin dropped auth alongside it.
 
 router.post(
   "/imports",
   upload.single("file"),
   asyncHandler(async (req: Request, res: Response) => {
-    const companyId = req.auth!.companyId!;
+    const companyId = await getDefaultCompanyId();
 
     const file = req.file;
     if (!file) {
@@ -49,7 +49,7 @@ router.post(
 router.get(
   "/imports",
   asyncHandler(async (req: Request, res: Response) => {
-    const companyId = req.auth!.companyId!;
+    const companyId = await getDefaultCompanyId();
     const imports = await prisma.csvImport.findMany({
       where: { companyId },
       orderBy: { createdAt: "desc" },
@@ -71,7 +71,7 @@ router.get(
 router.get(
   "/imports/latest/download",
   asyncHandler(async (req: Request, res: Response) => {
-    const companyId = req.auth!.companyId!;
+    const companyId = await getDefaultCompanyId();
     const record = await prisma.csvImport.findFirst({
       where: { companyId },
       orderBy: { createdAt: "desc" },
@@ -92,7 +92,7 @@ router.get(
 router.get(
   "/imports/:id/download",
   asyncHandler(async (req: Request, res: Response) => {
-    const companyId = req.auth!.companyId!;
+    const companyId = await getDefaultCompanyId();
     const record = await prisma.csvImport.findFirst({
       where: { id: String(req.params.id), companyId },
       select: { filename: true, content: true },

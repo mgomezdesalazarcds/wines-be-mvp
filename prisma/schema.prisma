@@ -164,6 +164,23 @@ model FailureLog {
   @@map("failure_logs")
 }
 
+/// A lightweight engagement event — the things ScanLog/FailureLog don't
+/// already cover (QR visits, wine detail views, Staff Favorites/New
+/// Arrivals opens, shelf saves). `type` is a free-form string rather than
+/// an enum so the pilot analytics page can add new event types without a
+/// migration; `metadata` holds whatever's specific to that type (e.g. the
+/// lookup_code for a wine_viewed event).
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  type      String
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([companyId, type])
+  @@map("analytics_events")
+}
+
 /// A CSV inventory file a company uploaded via the admin import screen — the
 /// raw file itself (so it can be downloaded again later), plus a summary of
 /// what importCsvForCompany() did with it.
