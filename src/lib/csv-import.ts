@@ -21,6 +21,8 @@ interface CsvRow {
   size: string;
   stock_count: string;
   availability: string;
+  staff_pick: string;
+  is_last_arrival: string;
 }
 
 function parseCsvLine(line: string): string[] {
@@ -43,9 +45,9 @@ function parseCsvLine(line: string): string[] {
   return fields;
 }
 
-function parseCsv(content: string): CsvRow[] {
+function parseCsv(content: string): { rows: CsvRow[]; headers: string[] } {
   const lines = content.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length === 0) return [];
+  if (lines.length === 0) return { rows: [], headers: [] };
   const headers = parseCsvLine(lines[0]).map((h) => cleanField(h).toLowerCase());
   const rows: CsvRow[] = [];
 
@@ -58,7 +60,7 @@ function parseCsv(content: string): CsvRow[] {
     rows.push(row as unknown as CsvRow);
   }
 
-  return rows;
+  return { rows, headers };
 }
 
 export interface ImportSummary {
@@ -81,6 +83,8 @@ interface ParsedRow {
   sale: number | null;
   stockCount: number;
   availability: string | null;
+  staffPick: boolean;
+  isLastArrival: boolean;
 }
 
 export async function importCsvForCompany(
@@ -90,7 +94,13 @@ export async function importCsvForCompany(
   const importStartedAt = Date.now();
 
   const parseStartedAt = Date.now();
-  const rawRows = parseCsv(csvContent);
+  const { rows: rawRows, headers } = parseCsv(csvContent);
+  // staff_pick is opt-in per file: the regular inventory export doesn't
+  // include it, and treating a missing column as "false" would wipe out
+  // every curated staff pick on the next routine re-import. Only a CSV
+  // that explicitly has the column can change it.
+  const hasStaffPickColumn = headers.includes("staff_pick");
+  const hasLastArrivalColumn = headers.includes("is_last_arrival");
   console.log(`CSV import timing: parse took ${Date.now() - parseStartedAt}ms (${rawRows.length} rows)`);
 
   const lookupFetchStartedAt = Date.now();
@@ -123,24 +133,53 @@ export async function importCsvForCompany(
       sale: saleValue > 0 ? saleValue : null,
       stockCount: parseInt(cleanField(row.stock_count), 10) || 0,
       availability: cleanField(row.availability) || null,
+      staffPick: cleanField(row.staff_pick).toUpperCase() === "YES",
+      isLastArrival: cleanField(row.is_last_arrival).toUpperCase() === "YES",
     };
 
     (existingLookupCodes.has(lookupCode) ? toUpdate : toCreate).push(parsed);
   }
 
   // Already-known SKUs: one UPDATE...FROM(VALUES...) per chunk instead of
-  // one round-trip per row (see UPDATE_CHUNK_SIZE above for why).
+  // one round-trip per row (see UPDATE_CHUNK_SIZE above for why). The
+  // optional columns (staff_pick, is_last_arrival) are only included in the
+  // VALUES tuple/SET clause when the CSV actually has that header — see the
+  // hasStaffPickColumn comment above for why.
+  const updateColumns = [
+    "lookup_code",
+    "price",
+    "sale",
+    "stock_count",
+    "availability",
+    ...(hasStaffPickColumn ? ["staff_pick"] : []),
+    ...(hasLastArrivalColumn ? ["is_last_arrival"] : []),
+  ];
+  const setClause = Prisma.join(
+    updateColumns.filter((c) => c !== "lookup_code").map((c) => Prisma.raw(`${c} = v.${c}`)),
+    ", "
+  );
+  const columnList = Prisma.raw(updateColumns.join(", "));
+
   const updateStartedAt = Date.now();
   for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK_SIZE) {
     const chunkStartedAt = Date.now();
     const chunk = toUpdate.slice(i, i + UPDATE_CHUNK_SIZE);
-    const values = chunk.map(
-      (r) => Prisma.sql`(${r.lookupCode}, ${r.price}::float8, ${r.sale}::float8, ${r.stockCount}::int, ${r.availability})`
-    );
+    const values = chunk.map((r) => {
+      const tuple = [
+        Prisma.sql`${r.lookupCode}`,
+        Prisma.sql`${r.price}::float8`,
+        Prisma.sql`${r.sale}::float8`,
+        Prisma.sql`${r.stockCount}::int`,
+        Prisma.sql`${r.availability}`,
+        ...(hasStaffPickColumn ? [Prisma.sql`${r.staffPick}::boolean`] : []),
+        ...(hasLastArrivalColumn ? [Prisma.sql`${r.isLastArrival}::boolean`] : []),
+      ];
+      return Prisma.sql`(${Prisma.join(tuple)})`;
+    });
     await prisma.$executeRaw`
       UPDATE company_wines AS cw
-      SET price = v.price, sale = v.sale, stock_count = v.stock_count, availability = v.availability
-      FROM (VALUES ${Prisma.join(values)}) AS v(lookup_code, price, sale, stock_count, availability)
+      SET ${setClause}
+      FROM (VALUES ${Prisma.join(values)}) AS v(${columnList})
       WHERE cw.company_id = ${companyId} AND cw.lookup_code = v.lookup_code
     `;
     console.log(`CSV import timing: update chunk ${i / UPDATE_CHUNK_SIZE + 1} (${chunk.length} rows) took ${Date.now() - chunkStartedAt}ms`);
@@ -178,6 +217,8 @@ export async function importCsvForCompany(
         sale: row.sale,
         stockCount: row.stockCount,
         availability: row.availability,
+        staffPick: hasStaffPickColumn ? row.staffPick : false,
+        isLastArrival: hasLastArrivalColumn ? row.isLastArrival : false,
       },
     });
   }
