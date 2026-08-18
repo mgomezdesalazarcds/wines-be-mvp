@@ -25,7 +25,7 @@ interface CsvRow {
   is_last_arrival: string;
 }
 
-function parseCsvLine(line: string): string[] {
+function parseCsvLine(line: string, delimiter: string): string[] {
   const fields: string[] = [];
   let current = "";
   let inQuotes = false;
@@ -34,7 +34,7 @@ function parseCsvLine(line: string): string[] {
     const ch = line[i];
     if (ch === '"') {
       inQuotes = !inQuotes;
-    } else if (ch === "," && !inQuotes) {
+    } else if (ch === delimiter && !inQuotes) {
       fields.push(current);
       current = "";
     } else {
@@ -45,14 +45,27 @@ function parseCsvLine(line: string): string[] {
   return fields;
 }
 
+/** Spreadsheet apps set to a Spanish/European locale (comma as the decimal
+ * separator) export CSVs with ";" instead of ",", which silently breaks a
+ * comma-only parser — every column ends up concatenated into one, so every
+ * row fails the lookup_code/item_name check and gets skipped with no
+ * obvious error. Pick whichever delimiter actually splits the header into
+ * more than one field. */
+function detectDelimiter(headerLine: string): string {
+  const commaCount = (headerLine.match(/,/g) ?? []).length;
+  const semicolonCount = (headerLine.match(/;/g) ?? []).length;
+  return semicolonCount > commaCount ? ";" : ",";
+}
+
 function parseCsv(content: string): { rows: CsvRow[]; headers: string[] } {
   const lines = content.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length === 0) return { rows: [], headers: [] };
-  const headers = parseCsvLine(lines[0]).map((h) => cleanField(h).toLowerCase());
+  const delimiter = detectDelimiter(lines[0]);
+  const headers = parseCsvLine(lines[0], delimiter).map((h) => cleanField(h).toLowerCase());
   const rows: CsvRow[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]);
+    const values = parseCsvLine(lines[i], delimiter);
     const row: Record<string, string> = {};
     headers.forEach((h, idx) => {
       row[h] = values[idx] ?? "";
