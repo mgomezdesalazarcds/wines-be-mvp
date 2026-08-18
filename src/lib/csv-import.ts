@@ -68,6 +68,7 @@ export interface ImportSummary {
   created: number;
   reused: number;
   updated: number;
+  unchanged: number;
   skipped: number;
 }
 
@@ -106,12 +107,21 @@ export async function importCsvForCompany(
   const lookupFetchStartedAt = Date.now();
   const existingRows = await prisma.companyWine.findMany({
     where: { companyId },
-    select: { lookupCode: true },
+    select: {
+      lookupCode: true,
+      price: true,
+      sale: true,
+      stockCount: true,
+      availability: true,
+      staffPick: true,
+      isLastArrival: true,
+    },
   });
-  const existingLookupCodes = new Set(existingRows.map((r) => r.lookupCode));
-  console.log(`CSV import timing: existing lookup codes fetch took ${Date.now() - lookupFetchStartedAt}ms (${existingLookupCodes.size} codes)`);
+  const existingByLookupCode = new Map(existingRows.map((r) => [r.lookupCode, r]));
+  console.log(`CSV import timing: existing lookup codes fetch took ${Date.now() - lookupFetchStartedAt}ms (${existingByLookupCode.size} codes)`);
 
   let skipped = 0;
+  let unchanged = 0;
   const toUpdate: ParsedRow[] = [];
   const toCreate: ParsedRow[] = [];
 
@@ -137,7 +147,28 @@ export async function importCsvForCompany(
       isLastArrival: cleanField(row.is_last_arrival).toUpperCase() === "YES",
     };
 
-    (existingLookupCodes.has(lookupCode) ? toUpdate : toCreate).push(parsed);
+    const existing = existingByLookupCode.get(lookupCode);
+    if (!existing) {
+      toCreate.push(parsed);
+      continue;
+    }
+
+    // Only the columns this CSV actually has can have changed — comparing
+    // a field it doesn't include would flag every row as "changed" just
+    // because staffPick/isLastArrival parsed to false by default.
+    const changed =
+      existing.price !== parsed.price ||
+      existing.sale !== parsed.sale ||
+      existing.stockCount !== parsed.stockCount ||
+      existing.availability !== parsed.availability ||
+      (hasStaffPickColumn && existing.staffPick !== parsed.staffPick) ||
+      (hasLastArrivalColumn && existing.isLastArrival !== parsed.isLastArrival);
+
+    if (changed) {
+      toUpdate.push(parsed);
+    } else {
+      unchanged++;
+    }
   }
 
   // Already-known SKUs: one UPDATE...FROM(VALUES...) per chunk instead of
@@ -235,5 +266,5 @@ export async function importCsvForCompany(
     console.error("Classify/enrich pass failed:", err);
   });
 
-  return { totalRows: rawRows.length, created, reused, updated: toUpdate.length, skipped };
+  return { totalRows: rawRows.length, created, reused, updated: toUpdate.length, unchanged, skipped };
 }
