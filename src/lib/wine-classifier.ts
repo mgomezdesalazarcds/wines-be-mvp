@@ -42,6 +42,20 @@ export function cleanField(value: string | undefined | null): string {
   return value.replace(/[\t\r\n]+/g, " ").trim();
 }
 
+/** POS exports are inconsistent about zero-padding barcodes — the same
+ * physical UPC/EAN shows up as "86891083827" in one export and
+ * "086891083827" (or "000004052593"-style, padded further) in another.
+ * Stripping every leading zero is the canonical form everywhere a
+ * lookup_code is parsed from a CSV or matched against the database, so the
+ * same bottle always resolves to one row instead of silently forking into
+ * a second, increasingly stale one. */
+export function normalizeLookupCode(code: string): string {
+  const trimmed = cleanField(code);
+  if (!trimmed) return trimmed;
+  const stripped = trimmed.replace(/^0+/, "");
+  return stripped.length > 0 ? stripped : trimmed;
+}
+
 export function parsePrice(value: string | undefined | null): number {
   const cleaned = cleanField(value).replace(/[^0-9.]/g, "");
   const num = parseFloat(cleaned);

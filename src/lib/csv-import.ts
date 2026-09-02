@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
-import { cleanField, parsePrice, isLikelyWine, normalizeSize } from "./wine-classifier";
+import { cleanField, parsePrice, isLikelyWine, normalizeSize, normalizeLookupCode } from "./wine-classifier";
 import { findExistingWine } from "./wine-matcher";
 import { classifyAndEnrichPendingWines } from "./enrichment";
 
@@ -130,7 +130,17 @@ export async function importCsvForCompany(
       isLastArrival: true,
     },
   });
-  const existingByLookupCode = new Map(existingRows.map((r) => [r.lookupCode, r]));
+  // Keyed by normalized code (leading zeros stripped) rather than the raw
+  // stored value: the same physical SKU can be on file as "86891083827" or
+  // "086891083827" depending on which export produced it, and matching on
+  // the raw string would treat those as two different bottles — which is
+  // exactly how this table ended up with thousands of duplicate rows in
+  // the first place. Where two existing rows collide on the same
+  // normalized code (an already-duplicated SKU), the later one in the
+  // query just wins this comparison; the update below still reaches both.
+  const existingByLookupCode = new Map(
+    existingRows.map((r) => [normalizeLookupCode(r.lookupCode), r])
+  );
   console.log(`CSV import timing: existing lookup codes fetch took ${Date.now() - lookupFetchStartedAt}ms (${existingByLookupCode.size} codes)`);
 
   let skipped = 0;
@@ -140,7 +150,7 @@ export async function importCsvForCompany(
 
   for (const row of rawRows) {
     const itemName = cleanField(row.item_name);
-    const lookupCode = cleanField(row.lookup_code);
+    const lookupCode = normalizeLookupCode(row.lookup_code);
     if (!itemName || !lookupCode) {
       skipped++;
       continue;
@@ -224,7 +234,8 @@ export async function importCsvForCompany(
       UPDATE company_wines AS cw
       SET ${setClause}
       FROM (VALUES ${Prisma.join(values)}) AS v(${columnList})
-      WHERE cw.company_id = ${companyId} AND cw.lookup_code = v.lookup_code
+      WHERE cw.company_id = ${companyId}
+        AND regexp_replace(cw.lookup_code, '^0+', '') = v.lookup_code
     `;
     console.log(`CSV import timing: update chunk ${i / UPDATE_CHUNK_SIZE + 1} (${chunk.length} rows) took ${Date.now() - chunkStartedAt}ms`);
   }
