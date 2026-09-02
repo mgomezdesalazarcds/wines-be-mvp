@@ -87,6 +87,7 @@ export interface SerializedWine {
   staff_pick: boolean;
   is_last_arrival: boolean;
   image_url: string | null;
+  image_approved: boolean;
   created_at: Date;
 }
 
@@ -99,6 +100,7 @@ interface CompanyWineRow {
   staffPick: boolean;
   isLastArrival: boolean;
   imageUrl: string | null;
+  imageApproved: boolean;
   createdAt: Date;
   extraData: unknown;
   wine: {
@@ -124,6 +126,7 @@ function serializeCompanyWine(cw: CompanyWineRow): SerializedWine {
     staff_pick: cw.staffPick,
     is_last_arrival: cw.isLastArrival,
     image_url: cw.imageUrl,
+    image_approved: cw.imageApproved,
     created_at: cw.createdAt,
   };
 }
@@ -218,15 +221,16 @@ async function fuzzySearchCompanyWines(
       staff_pick: boolean;
       is_last_arrival: boolean;
       image_url: string | null;
+      image_approved: boolean;
       created_at: Date;
       sim: number;
     }[]
   >`
     SELECT lookup_code, item_name, price, sale, size, stock_count, availability,
-      is_wine, section, staff_pick, is_last_arrival, image_url, created_at, sim
+      is_wine, section, staff_pick, is_last_arrival, image_url, image_approved, created_at, sim
     FROM (
       SELECT cw.lookup_code, w.item_name, cw.price, cw.sale, w.size, cw.stock_count, cw.availability,
-        w.is_wine, w.section, cw.staff_pick, cw.is_last_arrival, cw.image_url, cw.created_at,
+        w.is_wine, w.section, cw.staff_pick, cw.is_last_arrival, cw.image_url, cw.image_approved, cw.created_at,
         GREATEST(${simExpr}) AS sim
       FROM company_wines cw
       JOIN wines w ON w.id = cw.wine_id
@@ -252,6 +256,7 @@ async function fuzzySearchCompanyWines(
     staff_pick: r.staff_pick,
     is_last_arrival: r.is_last_arrival,
     image_url: r.image_url,
+    image_approved: r.image_approved,
     created_at: r.created_at,
     matchConfidence: r.sim,
   }));
@@ -284,6 +289,7 @@ export interface UpdateCompanyWineInput {
   staffPick?: boolean;
   isLastArrival?: boolean;
   imageUrl?: string | null;
+  imageApproved?: boolean;
   /** Only the attributes being changed — merged over whatever the company
    * already overrode, not a replacement of the whole object. Any key not
    * present here keeps falling back to the generic Wine's value. */

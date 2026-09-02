@@ -151,6 +151,11 @@ export interface LabelExtraction {
   variety: string | null;
   fullText: string;
   confidence: number;
+  /** Separate from `confidence` (how well the text could be read) — whether
+   * this photo itself is good enough to show as the product photo (in
+   * focus, well-lit, not excessively glared/cropped). Used to gate
+   * auto-saving a customer's scan as the wine's image. */
+  photoUsable: boolean;
 }
 
 /** Returns one entry per bottle. Almost always a single-element array — only
@@ -165,6 +170,7 @@ export async function extractLabelsFromImage(
       {
         text: `Wine label OCR. Ignore bottles that are blurry, in the background, or whose label has less than half its width visible in frame (e.g. a neighboring bottle cut off at the edge) — those aren't the one the user meant to scan. Still do your best to read the main/foreground bottle(s) even if just a letter or corner of the label is clipped by the frame. If 2+ bottles have most of their label visible and in focus, one entry per bottle.
 Per bottle: producer, wineName, vintage (year|null), region, country, variety, fullText (all visible text), confidence (0-1).
+Also rate photoUsable (boolean): true only if this specific photo is good enough to show elsewhere as the product photo for this bottle — in focus, well-lit, not excessively glared or cropped, whole bottle roughly visible. Independent from confidence: a photo can be a clean, easy OCR read (high confidence) while still being unusable as a product photo (extreme close-up of just the text, heavy glare, tilted/cropped bottle), and vice versa.
 Best-effort extract even if uncertain — low confidence, not empty fields, unless no label is readable at all.
 Return only a JSON array.`,
       },
@@ -191,6 +197,9 @@ Return only a JSON array.`,
       parsed_.fullText ?? `${parsed_.producer ?? ""} ${parsed_.wineName ?? ""}`.trim()
     ),
     confidence: Number(parsed_.confidence ?? 0.5),
+    // Default false (not true) when the model omits the field — an unusable
+    // photo should never be assumed fine just because the model didn't say.
+    photoUsable: parsed_.photoUsable === true,
   }));
 }
 

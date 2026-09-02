@@ -5,6 +5,7 @@ import { prisma, getDefaultCompanyId } from "../lib/db";
 import { extractLabelsFromImage, hasGeminiApiKey } from "../lib/ai";
 import { matchFromLabelText, searchWines, MatchResult } from "../lib/wine-matcher";
 import { normalizeWineName } from "../lib/wine-classifier";
+import { uploadWineImage } from "../lib/storage";
 import { asyncHandler } from "../lib/asyncHandler";
 
 const router = Router();
@@ -13,6 +14,45 @@ const SECTIONS = (process.env.POC_SECTION || "italy")
   .map((s) => s.trim())
   .filter(Boolean);
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Below this, a confident-enough match to *show* the user isn't confident
+// enough to *permanently change the catalog photo* everyone else sees —
+// matching risk and photo-write risk aren't the same thing.
+const MIN_CONFIDENCE_FOR_AUTO_PHOTO = 0.75;
+
+/** Saves the user's scan photo as the wine's image, unless a staff/retailer
+ * photo is already approved (never overwritten) — see CompanyWine.imageApproved
+ * in schema.prisma for the rule. Best-effort: failures here shouldn't break
+ * the scan response the user is waiting on. */
+async function maybeSaveScanPhoto(
+  companyId: string,
+  lookupCode: string,
+  confidence: number,
+  photoUsable: boolean,
+  buffer: Buffer,
+  mimeType: string
+): Promise<void> {
+  if (confidence < MIN_CONFIDENCE_FOR_AUTO_PHOTO || !photoUsable) return;
+
+  try {
+    const existing = await prisma.companyWine.findUnique({
+      where: { companyId_lookupCode: { companyId, lookupCode } },
+      select: { id: true, imageApproved: true },
+    });
+    if (!existing || existing.imageApproved) return;
+
+    const extension = mimeType.split("/")[1] || "jpg";
+    const filename = `${companyId}-${lookupCode}.${extension}`;
+    const imageUrl = await uploadWineImage(filename, buffer, mimeType);
+
+    await prisma.companyWine.update({
+      where: { id: existing.id },
+      data: { imageUrl },
+    });
+  } catch (err) {
+    console.error("Auto-save scan photo failed:", err);
+  }
+}
 
 router.post(
   "/",
@@ -87,6 +127,19 @@ router.post(
             confidence: match.confidence,
           },
         });
+
+        // Fire-and-forget: only for a single, unambiguous match — with 2+
+        // candidates we don't actually know which bottle this photo is of.
+        if (isSingleMatch) {
+          maybeSaveScanPhoto(
+            companyId,
+            match.wine.lookup_code,
+            match.confidence,
+            primary?.photoUsable ?? false,
+            buffer,
+            mimeType
+          );
+        }
 
         return res.json({
           status: isSingleMatch ? "matched" : "multiple_matches",

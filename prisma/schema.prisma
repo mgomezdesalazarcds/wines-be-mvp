@@ -125,6 +125,10 @@ model CompanyWine {
   staffPick     Boolean  @default(false) @map("staff_pick")
   isLastArrival Boolean  @default(false) @map("is_last_arrival")
   imageUrl      String?  @map("image_url")
+  /// True once a staff/retailer-uploaded photo is set — a customer-scan photo
+  /// (see routes/scan.ts) never overwrites one of these, only replaces
+  /// another customer-scan photo ("latest wins" among unapproved photos).
+  imageApproved Boolean  @default(false) @map("image_approved")
   extraData     Json?    @map("extra_data")
   createdAt     DateTime @default(now()) @map("created_at")
 

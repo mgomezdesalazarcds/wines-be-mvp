@@ -123,6 +123,9 @@ router.patch("/:id", requireAuth, requireCompanyScope, asyncHandler(async (req: 
       return res.status(400).json({ error: "imageUrl must be a string or null" });
     }
     input.imageUrl = body.imageUrl;
+    // A manual edit here is always a staff action — approved when setting a
+    // photo, and reset when clearing one so a later scan is free to fill it.
+    input.imageApproved = body.imageUrl !== null;
   }
   if (body.extraData !== undefined) {
     if (typeof body.extraData !== "object" || body.extraData === null || Array.isArray(body.extraData)) {
@@ -164,7 +167,7 @@ router.post(
     const filename = `${companyId}-${lookupCode}.${extension}`;
     const imageUrl = await uploadWineImage(filename, file.buffer, file.mimetype);
 
-    const result = await updateCompanyWine(companyId, lookupCode, { imageUrl });
+    const result = await updateCompanyWine(companyId, lookupCode, { imageUrl, imageApproved: true });
     if (!result) {
       return res.status(404).json({ error: "Wine not found" });
     }
