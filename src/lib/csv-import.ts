@@ -9,9 +9,14 @@ import { classifyAndEnrichPendingWines } from "./enrichment";
 // hours. Batching many rows into one UPDATE...FROM(VALUES...) statement
 // turns that into one round-trip per chunk instead of one per row.
 // Postgres's real limit is 32,767 bind params per statement (confirmed by
-// hitting it at chunk size 9000 => 36,000 params); 4 params/row caps this
-// around 8,191 — stay comfortably under that.
-const UPDATE_CHUNK_SIZE = 8000;
+// hitting it at chunk size 9000 => 36,000 params with 4 params/row). The
+// VALUES tuple now has 5-7 params/row depending on which optional columns
+// (staff_pick, is_last_arrival) the CSV includes, so the chunk size is
+// derived from the actual column count instead of a fixed constant — a
+// hardcoded size silently broke (P2035 "too many bind variables") the last
+// time a column was added here without updating it.
+const MAX_BIND_PARAMS = 32767;
+const BIND_PARAM_SAFETY_MARGIN = 2000;
 
 interface CsvRow {
   lookup_code: string;
@@ -195,7 +200,7 @@ export async function importCsvForCompany(
   }
 
   // Already-known SKUs: one UPDATE...FROM(VALUES...) per chunk instead of
-  // one round-trip per row (see UPDATE_CHUNK_SIZE above for why). The
+  // one round-trip per row (see MAX_BIND_PARAMS above for why). The
   // optional columns (staff_pick, is_last_arrival) are only included in the
   // VALUES tuple/SET clause when the CSV actually has that header — see the
   // hasStaffPickColumn comment above for why.
@@ -214,10 +219,17 @@ export async function importCsvForCompany(
   );
   const columnList = Prisma.raw(updateColumns.join(", "));
 
+  // +1 for the companyId bind param used in the WHERE clause below.
+  const paramsPerRow = updateColumns.length;
+  const updateChunkSize = Math.max(
+    1,
+    Math.floor((MAX_BIND_PARAMS - BIND_PARAM_SAFETY_MARGIN - 1) / paramsPerRow)
+  );
+
   const updateStartedAt = Date.now();
-  for (let i = 0; i < toUpdate.length; i += UPDATE_CHUNK_SIZE) {
+  for (let i = 0; i < toUpdate.length; i += updateChunkSize) {
     const chunkStartedAt = Date.now();
-    const chunk = toUpdate.slice(i, i + UPDATE_CHUNK_SIZE);
+    const chunk = toUpdate.slice(i, i + updateChunkSize);
     const values = chunk.map((r) => {
       const tuple = [
         Prisma.sql`${r.lookupCode}`,
@@ -237,7 +249,7 @@ export async function importCsvForCompany(
       WHERE cw.company_id = ${companyId}
         AND regexp_replace(cw.lookup_code, '^0+', '') = v.lookup_code
     `;
-    console.log(`CSV import timing: update chunk ${i / UPDATE_CHUNK_SIZE + 1} (${chunk.length} rows) took ${Date.now() - chunkStartedAt}ms`);
+    console.log(`CSV import timing: update chunk ${i / updateChunkSize + 1} (${chunk.length} rows) took ${Date.now() - chunkStartedAt}ms`);
   }
   console.log(`CSV import timing: all updates took ${Date.now() - updateStartedAt}ms total (${toUpdate.length} rows)`);
 
