@@ -10,10 +10,11 @@ export type { EnrichmentData, FlavorCircle, FlavorFamily, WineType } from "./enr
 const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"];
 
 function getModelCandidates(): string[] {
-  if (process.env.GEMINI_MODEL) {
-    return [process.env.GEMINI_MODEL];
-  }
-  return DEFAULT_MODELS;
+  const preferred = process.env.GEMINI_MODEL?.trim();
+  // Always keep defaults as fallback — a preferred model can be quota-exhausted
+  // (free tier) or unavailable on preview without failing the whole enrich.
+  if (!preferred) return DEFAULT_MODELS;
+  return [preferred, ...DEFAULT_MODELS.filter((model) => model !== preferred)];
 }
 
 function getApiKey(): string {
@@ -107,8 +108,15 @@ async function generateText(
           );
           throw formatGeminiError(err);
         }
+        // Daily/model quota: don't burn retries on the same model — try the next candidate.
+        if (isQuotaError(err)) {
+          console.log(
+            `Gemini call: model=${modelName} attempt=${attempt} quota after ${Date.now() - attemptStartedAt}ms: ${message} — trying next model`
+          );
+          break;
+        }
         if (attempt < 2) {
-          const delay = parseRetryDelayMs(err) ?? (attempt + 1) * 5000;
+          const delay = Math.min(parseRetryDelayMs(err) ?? (attempt + 1) * 5000, 15_000);
           console.log(
             `Gemini call: model=${modelName} attempt=${attempt} failed (transient) after ${Date.now() - attemptStartedAt}ms: ${message} — retrying in ${delay}ms`
           );

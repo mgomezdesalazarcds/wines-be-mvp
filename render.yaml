@@ -10,7 +10,7 @@ services:
       - key: POC_SECTION
         value: italy,spain,france
       - key: GEMINI_MODEL
-        value: gemini-flash-lite-latest
+        value: gemini-2.5-flash-lite
       - key: DEFAULT_COMPANY_SLUG
         value: little-bros
       - key: DATABASE_URL
