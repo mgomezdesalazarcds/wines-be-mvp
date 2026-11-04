@@ -73,10 +73,12 @@ model InviteToken {
 /// company. Not a specific bottle: no vintage here, since the same SKU can be
 /// restocked under a different vintage.
 ///
-/// `extraData` is the AI-generated enrichment (tasting_notes, taste_profile,
-/// pairs_well_with, variety, region, country, body/acidity/tannin/sweetness,
-/// dryness_label, why_we_love_it, from_the_team, provenance) — the default
-/// copy every company starts from.
+/// `extraData` is the AI-generated enrichment (tasting_notes, taste_summary,
+/// flavors[3], taste_profile, pairs_well_with, variety, region, country,
+/// wine_type, body/acidity/tannin/sweetness/fruity_earthy/crisp_creamy,
+/// dryness_label, provenance) — the default copy every company starts from.
+/// Staff copy (staff_note / staff_name / why_we_love_it / from_the_team) is
+/// written per company, not by the AI.
 ///
 /// `isWine`/`section`/`sectionSource` are objective classification facts
 /// about the item (is it actually a wine bottle, what country it's from) —

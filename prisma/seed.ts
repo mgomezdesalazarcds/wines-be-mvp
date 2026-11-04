@@ -1,27 +1,8 @@
 import "../src/env";
 import { PrismaClient, Prisma } from "@prisma/client";
+import type { EnrichmentData } from "../src/lib/enrichment-data";
 
 const prisma = new PrismaClient();
-
-/** Shape the AI enrichment pipeline produces — same as wines-be-node's
- * EnrichmentData. Stored as-is in `Wine.extraData`; a company only writes to
- * `CompanyWine.extraData` once it edits its own copy. */
-interface EnrichmentData {
-  tasting_notes: string;
-  taste_profile: string[];
-  pairs_well_with: string[];
-  variety: string | null;
-  region: string | null;
-  country: string | null;
-  body: number;
-  acidity: number;
-  tannin: number;
-  sweetness: number;
-  dryness_label: string;
-  why_we_love_it: string;
-  from_the_team: string;
-  provenance: "verified" | "inferred";
-}
 
 async function main() {
   const company = await prisma.company.upsert({
@@ -53,18 +34,26 @@ async function main() {
       extraData: {
         tasting_notes:
           "Bright cherry and red plum with a savory, herbal edge and firm, food-friendly acidity.",
+        taste_summary:
+          "Bright and savory, with ripe cherry, herbal notes and a food-friendly finish.",
+        flavors: [
+          { name: "Cherry", intensity: 3, family: "red_fruit" },
+          { name: "Herb", intensity: 2, family: "herbal" },
+          { name: "Earth", intensity: 1, family: "earth_mineral" },
+        ],
         taste_profile: ["Cherry", "Herb", "Earth"],
         pairs_well_with: ["Pasta", "Pizza", "Grilled meats"],
         variety: "Sangiovese",
         region: "Tuscany",
         country: "Italy",
+        wine_type: "red",
         body: 3,
         acidity: 4,
         tannin: 3,
         sweetness: 1,
+        fruity_earthy: 2,
+        crisp_creamy: 2,
         dryness_label: "Dry",
-        why_we_love_it: "A classic Chianti that overdelivers for the price.",
-        from_the_team: "Our go-to bottle for weeknight pasta.",
         provenance: "verified",
       },
     },
@@ -78,18 +67,26 @@ async function main() {
       extraData: {
         tasting_notes:
           "Rich dark fruit, dried rose, and leather, with structured tannin built to age.",
-        taste_profile: ["Dark fruit", "Leather", "Rose"],
+        taste_summary:
+          "Deep and structured, with dark fruit, dried rose and a firm, age-worthy finish.",
+        flavors: [
+          { name: "Dark Cherry", intensity: 3, family: "black_fruit" },
+          { name: "Rose", intensity: 2, family: "floral" },
+          { name: "Leather", intensity: 1, family: "earth_mineral" },
+        ],
+        taste_profile: ["Dark Cherry", "Rose", "Leather"],
         pairs_well_with: ["Steak", "Aged cheese", "Braised short rib"],
         variety: "Sangiovese Grosso",
         region: "Tuscany",
         country: "Italy",
+        wine_type: "red",
         body: 5,
         acidity: 3,
         tannin: 5,
         sweetness: 1,
+        fruity_earthy: 3,
+        crisp_creamy: 3,
         dryness_label: "Dry",
-        why_we_love_it: "A special-occasion bottle that always impresses.",
-        from_the_team: "Worth decanting an hour before you pour it.",
         provenance: "verified",
       },
     },
@@ -99,7 +96,15 @@ async function main() {
     const existing = await prisma.companyWine.findUnique({
       where: { companyId_lookupCode: { companyId: company.id, lookupCode: w.lookupCode } },
     });
-    if (existing) continue;
+    if (existing) {
+      // Keep local demos on the new Flavor Circles contract even if the
+      // listing already exists from an older seed.
+      await prisma.wine.update({
+        where: { id: existing.wineId },
+        data: { extraData: w.extraData as unknown as Prisma.InputJsonValue },
+      });
+      continue;
+    }
 
     const wine = await prisma.wine.create({
       data: {

@@ -1,4 +1,11 @@
 import { GenerateContentRequest, GoogleGenerativeAI, Part } from "@google/generative-ai";
+import {
+  EnrichmentData,
+  ENRICHMENT_FIELDS_PROMPT,
+  normalizeEnrichment,
+} from "./enrichment-data";
+
+export type { EnrichmentData, FlavorCircle, FlavorFamily, WineType } from "./enrichment-data";
 
 const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"];
 
@@ -194,49 +201,11 @@ Return only a JSON array.`,
   }));
 }
 
-export interface EnrichmentData {
-  tasting_notes: string;
-  taste_profile: string[];
-  pairs_well_with: string[];
-  variety: string | null;
-  region: string | null;
-  country: string | null;
-  body: number;
-  acidity: number;
-  tannin: number;
-  sweetness: number;
-  dryness_label: string;
-  why_we_love_it: string;
-  from_the_team: string;
-  provenance: "verified" | "inferred";
-}
-
-const ENRICHMENT_FIELDS_PROMPT =
-  'tasting_notes (2-3 sentences), taste_profile (array of 3 flavor words), pairs_well_with (array of 3 foods), variety, region, country, body/acidity/tannin/sweetness (1-5 integers), dryness_label (e.g. "Dry"), why_we_love_it (1 friendly sentence), from_the_team (1 sentence staff quote), provenance ("verified" or "inferred")';
-
-function parseEnrichmentRow(parsed: Record<string, unknown>): EnrichmentData {
-  return {
-    tasting_notes: String(parsed.tasting_notes ?? "A well-crafted wine worth exploring."),
-    taste_profile: Array.isArray(parsed.taste_profile)
-      ? parsed.taste_profile.map(String)
-      : ["Fruit", "Earth", "Spice"],
-    pairs_well_with: Array.isArray(parsed.pairs_well_with)
-      ? parsed.pairs_well_with.map(String)
-      : ["Pasta", "Cheese", "Grilled meats"],
-    variety: parsed.variety != null ? String(parsed.variety) : null,
-    region: parsed.region != null ? String(parsed.region) : null,
-    country: parsed.country != null ? String(parsed.country) : null,
-    body: Math.min(5, Math.max(1, Number(parsed.body ?? 3))),
-    acidity: Math.min(5, Math.max(1, Number(parsed.acidity ?? 3))),
-    tannin: Math.min(5, Math.max(1, Number(parsed.tannin ?? 3))),
-    sweetness: Math.min(5, Math.max(1, Number(parsed.sweetness ?? 1))),
-    dryness_label: String(parsed.dryness_label ?? "Dry"),
-    why_we_love_it: String(
-      parsed.why_we_love_it ?? "A customer favorite from our Italian selection."
-    ),
-    from_the_team: String(parsed.from_the_team ?? "Great value and easy to enjoy."),
-    provenance: parsed.provenance === "verified" ? "verified" : "inferred",
-  };
+function parseEnrichmentRow(
+  parsed: Record<string, unknown>,
+  itemName?: string
+): EnrichmentData {
+  return normalizeEnrichment(parsed, { itemName });
 }
 
 export interface WineClassification {
@@ -287,8 +256,49 @@ ${list}`,
   for (const row of parsed) {
     const isWine = Boolean(row.is_wine);
     const section = isWine && sections.includes(row.section) ? row.section : null;
-    const enrichment = isWine && section && row.enrichment ? parseEnrichmentRow(row.enrichment) : null;
+    const itemName = wines.find((w) => w.id === String(row.id))?.itemName;
+    const enrichment =
+      isWine && section && row.enrichment
+        ? parseEnrichmentRow(row.enrichment, itemName)
+        : null;
     result.set(String(row.id), { isWine, section, enrichment });
+  }
+  return result;
+}
+
+/** Enrichment-only pass for wines that are already classified. Used to
+ * regenerate Taste Profile / Flavor Circles without re-running is_wine or
+ * section. Does not write why_we_love_it / from_the_team. */
+export async function enrichWinesBatch(
+  wines: { id: string; itemName: string }[]
+): Promise<Map<string, EnrichmentData>> {
+  if (wines.length === 0) return new Map();
+
+  const list = wines.map((w) => `${w.id}\t${w.itemName}`).join("\n");
+
+  const content = await generateText(
+    `You are a sommelier writing shopper-facing tasting cards for a liquor store. Each line is "id<TAB>item_name" (abbreviated POS names).
+
+For each wine generate: ${ENRICHMENT_FIELDS_PROMPT}.
+Be honest — don't invent specific vineyard details. Keep notes practical for a store shopper.
+flavors MUST have exactly 3 items with intensities 1, 2, and 3 each used once.
+
+Return ONLY a JSON array, one object per item: {"id": string, "enrichment": {...}}.
+
+${list}`,
+    true
+  );
+
+  const parsed = parseJsonArrayFromText(content) as {
+    id: string;
+    enrichment: Record<string, unknown> | null;
+  }[];
+
+  const result = new Map<string, EnrichmentData>();
+  for (const row of parsed) {
+    if (!row.enrichment) continue;
+    const itemName = wines.find((w) => w.id === String(row.id))?.itemName;
+    result.set(String(row.id), parseEnrichmentRow(row.enrichment, itemName));
   }
   return result;
 }
