@@ -103,6 +103,7 @@ function clampScale(value: unknown, fallback: number): number {
   return Math.min(5, Math.max(1, Math.round(n)));
 }
 
+/** Coerce model family strings onto the FE enum; unknown → earth_mineral. */
 function normalizeFamily(raw: unknown): FlavorFamily {
   const key = String(raw ?? "")
     .trim()
@@ -151,7 +152,11 @@ function parseFlavorItem(raw: unknown): FlavorCircle | null {
   };
 }
 
-/** Always returns exactly 3 flavors with distinct intensities 1, 2, and 3. */
+/**
+ * Structural cleanup only — does not invent better tasting notes.
+ * Content quality (real aromas, distinct families, no "Crisp") is the model's
+ * job via ENRICHMENT_FIELDS_PROMPT; re-run enrichment if old rows are wrong.
+ */
 export function normalizeFlavors(
   raw: unknown,
   tasteProfileFallback?: unknown
@@ -185,8 +190,7 @@ export function normalizeFlavors(
     picked.push(DEFAULT_FLAVORS[picked.length]);
   }
 
-  // Assign unique intensities by prominence: keep preferred intensity when
-  // free, otherwise fill remaining slots from 3 → 1.
+  // Contract: intensities must be unique 1/2/3 (wire shape for the FE).
   const sorted = [...picked].sort(
     (a, b) => b.intensity - a.intensity || a.name.localeCompare(b.name)
   );
@@ -288,11 +292,11 @@ export function normalizeEnrichment(
 export const ENRICHMENT_FIELDS_PROMPT = [
   "tasting_notes (2-3 sentences)",
   'taste_summary (exactly 1 short sentence summarizing the Taste Profile for the UI, e.g. "Smooth and fruit-forward, with ripe red fruit, a little spice and a silky finish.")',
-  'flavors (array of EXACTLY 3 objects: {"name": short label like "Cherry", "intensity": 1|2|3 with each value used once, "family": one of red_fruit|black_fruit|citrus|stone_tropical|floral|herbal|spice|earth_mineral}. intensity 3 = dominant)',
+  'flavors (array of EXACTLY 3 objects: {"name": short concrete aroma/flavor label like "Cherry", "Peach", "Baking Spice", "Saline", "Green Apple"; "intensity": 1|2|3 with each value used once; "family": one of red_fruit|black_fruit|citrus|stone_tropical|floral|herbal|spice|earth_mineral}. intensity 3 = dominant. CRITICAL: each of the 3 flavors MUST use a DIFFERENT family so circle colors differ. CRITICAL: name must be a real smell/taste note — fruit, flower, herb, spice, earth/mineral/saline — NEVER texture or mouthfeel words like Crisp, Creamy, Smooth, Silky, Soft, Fresh, Bright, Juicy, Rich, Light, Dry, Sweet; those belong only on the body/acidity/tannin/sweetness/fruity_earthy/crisp_creamy scales)',
   "pairs_well_with (array of 3 foods)",
   "variety, region, country",
   'wine_type ("red" | "white" | "rose")',
-  "body/acidity/tannin/sweetness/fruity_earthy/crisp_creamy (1-5 integers)",
+  "body/acidity/tannin/sweetness/fruity_earthy/crisp_creamy (1-5 integers; put mouthfeel/texture here — e.g. crisp vs creamy — NOT in flavors)",
   'dryness_label (e.g. "Dry")',
   'provenance ("verified" or "inferred")',
   "Do NOT generate why_we_love_it or from_the_team — staff writes those separately",

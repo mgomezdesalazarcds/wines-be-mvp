@@ -281,7 +281,7 @@ export async function enrichWinesBatch(
 
 For each wine generate: ${ENRICHMENT_FIELDS_PROMPT}.
 Be honest — don't invent specific vineyard details. Keep notes practical for a store shopper.
-flavors MUST have exactly 3 items with intensities 1, 2, and 3 each used once.
+flavors MUST have exactly 3 items with intensities 1, 2, and 3 each used once, three DIFFERENT families, and aroma/flavor names only (never texture words like Crisp/Creamy/Smooth — use crisp_creamy for that).
 
 Return ONLY a JSON array, one object per item: {"id": string, "enrichment": {...}}.
 
