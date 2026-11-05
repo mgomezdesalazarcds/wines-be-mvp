@@ -15,6 +15,7 @@ import { requiredMatchTokens } from "../lib/wine-classifier";
 import { asyncHandler } from "../lib/asyncHandler";
 import { requireAuth, requireCompanyScope } from "../lib/auth";
 import { ensureStructuredFlavorsForLookup } from "../lib/enrichment";
+import { hasStructuredFlavors } from "../lib/enrichment-data";
 
 const router = Router();
 const imageUpload = multer({
@@ -67,21 +68,22 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
 router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   const companyId = await getDefaultCompanyId();
   const id = String(req.params.id);
-
-  // Legacy taste_profile-only rows: upgrade via Gemini (not FE keyword colors).
-  // No key / failure → still return the stored enrichment.
-  await ensureStructuredFlavorsForLookup(companyId, id);
-
   const result = await getWineDetail(companyId, id);
   if (!result) {
     return res.status(404).json({ error: "Vino no encontrado" });
   }
 
-  return res.json(result);
+  // Never block detail on Gemini — legacy rows without `flavors` stay fast;
+  // FE should POST /api/wines/:id when needs_flavor_enrichment is true.
+  return res.json({
+    ...result,
+    needs_flavor_enrichment: !hasStructuredFlavors(result.enrichment),
+  });
 }));
 
 /** On-demand AI enrichment for a listing that has no Flavor Circles yet.
- * Writes only to Wine.extraData; company staff_note / staff_name are untouched. */
+ * Writes only to Wine.extraData; company staff_note / staff_name are untouched.
+ * Use this (not GET) for Gemini — can take tens of seconds. */
 router.post("/:id", asyncHandler(async (req: Request, res: Response) => {
   const companyId = await getDefaultCompanyId();
   const lookupCode = String(req.params.id);
