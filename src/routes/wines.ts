@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import multer from "multer";
-import { getDefaultCompanyId, prisma } from "../lib/db";
+import { getDefaultCompanyId } from "../lib/db";
 import {
   searchWines,
   getStaffPicks,
@@ -14,8 +14,7 @@ import { uploadWineImage } from "../lib/storage";
 import { requiredMatchTokens } from "../lib/wine-classifier";
 import { asyncHandler } from "../lib/asyncHandler";
 import { requireAuth, requireCompanyScope } from "../lib/auth";
-import { enrichWineById } from "../lib/enrichment";
-import { hasStructuredFlavors } from "../lib/enrichment-data";
+import { ensureStructuredFlavorsForLookup } from "../lib/enrichment";
 
 const router = Router();
 const imageUpload = multer({
@@ -68,8 +67,12 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
 router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   const companyId = await getDefaultCompanyId();
   const id = String(req.params.id);
-  const result = await getWineDetail(companyId, id);
 
+  // Legacy taste_profile-only rows: upgrade via Gemini (not FE keyword colors).
+  // No key / failure → still return the stored enrichment.
+  await ensureStructuredFlavorsForLookup(companyId, id);
+
+  const result = await getWineDetail(companyId, id);
   if (!result) {
     return res.status(404).json({ error: "Vino no encontrado" });
   }
@@ -83,38 +86,21 @@ router.post("/:id", asyncHandler(async (req: Request, res: Response) => {
   const companyId = await getDefaultCompanyId();
   const lookupCode = String(req.params.id);
 
-  const cw = await prisma.companyWine.findUnique({
-    where: { companyId_lookupCode: { companyId, lookupCode } },
-    select: {
-      wineId: true,
-      wine: { select: { extraData: true, isWine: true } },
-      extraData: true,
-    },
-  });
-  if (!cw) {
+  const status = await ensureStructuredFlavorsForLookup(companyId, lookupCode);
+  if (status === "not_found") {
     return res.status(404).json({ error: "Vino no encontrado" });
   }
-  if (!cw.wine.isWine) {
-    return res.status(400).json({ error: "Item is not classified as wine" });
+  if (status === "failed") {
+    return res.status(502).json({ error: "Enrichment failed" });
   }
-
-  const resolved = {
-    ...((cw.wine.extraData as Record<string, unknown> | null) ?? {}),
-    ...((cw.extraData as Record<string, unknown> | null) ?? {}),
-  };
-  if (!hasStructuredFlavors(resolved)) {
-    try {
-      const ok = await enrichWineById(cw.wineId);
-      if (!ok) {
-        return res.status(502).json({ error: "Enrichment failed" });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Enrichment failed";
-      return res.status(502).json({ error: message });
-    }
+  if (status === "skipped_no_key") {
+    return res.status(502).json({ error: "GEMINI_API_KEY not configured" });
   }
 
   const result = await getWineDetail(companyId, lookupCode);
+  if (!result) {
+    return res.status(404).json({ error: "Vino no encontrado" });
+  }
   return res.json(result);
 }));
 

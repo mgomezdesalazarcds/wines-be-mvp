@@ -205,8 +205,9 @@ export async function reenrichClassifiedWines(
   return summary;
 }
 
-/** On-demand enrichment for a single generic Wine row (used by POST
- * /api/wines/:id when the listing has no usable enrichment yet). */
+/** On-demand enrichment for a single generic Wine row (POST /api/wines/:id
+ * and lazy upgrade on GET when Flavor Circles are missing). Legacy rows with
+ * only taste_profile get a fresh Gemini pass — not keyword→color guessing. */
 export async function enrichWineById(wineId: string): Promise<boolean> {
   if (!hasGeminiApiKey()) {
     throw new Error("GEMINI_API_KEY not configured");
@@ -232,4 +233,42 @@ export async function enrichWineById(wineId: string): Promise<boolean> {
     data: { extraData: merged as Prisma.InputJsonValue },
   });
   return true;
+}
+
+/** Resolve company listing → wine id and upgrade Flavor Circles via AI when
+ * the stored enrichment is still the legacy taste_profile-only shape. */
+export async function ensureStructuredFlavorsForLookup(
+  companyId: string,
+  lookupCode: string
+): Promise<"updated" | "already_ok" | "skipped_no_key" | "not_found" | "failed"> {
+  const cw = await prisma.companyWine.findUnique({
+    where: { companyId_lookupCode: { companyId, lookupCode } },
+    select: {
+      wineId: true,
+      wine: { select: { extraData: true, isWine: true } },
+      extraData: true,
+    },
+  });
+  if (!cw) return "not_found";
+  if (!cw.wine.isWine) return "already_ok";
+
+  const resolved = {
+    ...((cw.wine.extraData as Record<string, unknown> | null) ?? {}),
+    ...((cw.extraData as Record<string, unknown> | null) ?? {}),
+  };
+  if (hasStructuredFlavors(resolved)) {
+    return "already_ok";
+  }
+  if (!hasGeminiApiKey()) {
+    return "skipped_no_key";
+  }
+
+  try {
+    const ok = await enrichWineById(cw.wineId);
+    return ok ? "updated" : "failed";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`ensureStructuredFlavorsForLookup(${lookupCode}):`, message);
+    return "failed";
+  }
 }
