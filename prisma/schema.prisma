@@ -77,8 +77,8 @@ model InviteToken {
 /// flavors[3], taste_profile, pairs_well_with, variety, region, country,
 /// wine_type, body/acidity/tannin/sweetness/fruity_earthy/crisp_creamy,
 /// dryness_label, provenance) — the default copy every company starts from.
-/// Staff copy (staff_note / staff_name / why_we_love_it / from_the_team) is
-/// written per company, not by the AI.
+/// Store staff copy (staff_note / staff_name) is written per company via CSV.
+/// AI may still set why_we_love_it on the generic wine as a FE fallback.
 ///
 /// `isWine`/`section`/`sectionSource` are objective classification facts
 /// about the item (is it actually a wine bottle, what country it's from) —

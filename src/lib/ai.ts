@@ -268,7 +268,7 @@ ${list}`,
 
 /** Enrichment-only pass for wines that are already classified. Used to
  * regenerate Taste Profile / Flavor Circles without re-running is_wine or
- * section. Does not write why_we_love_it / from_the_team. */
+ * section. Does not write staff_note / staff_name / from_the_team. */
 export async function enrichWinesBatch(
   wines: { id: string; itemName: string }[]
 ): Promise<Map<string, EnrichmentData>> {
