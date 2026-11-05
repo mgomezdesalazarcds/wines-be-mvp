@@ -47,17 +47,16 @@ export interface EnrichmentData {
   fruity_earthy: number;
   crisp_creamy: number;
   dryness_label: string;
+  /** AI fallback blurb; FE prefers company staff_note when present. */
+  why_we_love_it: string;
   provenance: "verified" | "inferred";
 }
 
-/** Staff-authored keys that live on company (or rarely wine) extraData.
- * AI enrichment must never overwrite these. */
-export const STAFF_EXTRA_DATA_KEYS = [
-  "staff_note",
-  "staff_name",
-  "why_we_love_it",
-  "from_the_team",
-] as const;
+/** Staff-authored keys on CompanyWine.extraData (CSV). AI must never write
+ * these onto Wine.extraData in a way that clobbers store copy — they are
+ * preserved if they somehow landed on the wine row. why_we_love_it is AI
+ * fallback and is allowed to refresh on re-enrich. */
+export const STAFF_EXTRA_DATA_KEYS = ["staff_note", "staff_name", "from_the_team"] as const;
 
 const FAMILY_SET = new Set<string>(FLAVOR_FAMILIES);
 
@@ -285,6 +284,9 @@ export function normalizeEnrichment(
     fruity_earthy: clampScale(parsed.fruity_earthy ?? parsed.fruit_to_earth, 3),
     crisp_creamy: clampScale(parsed.crisp_creamy ?? parsed.texture, 3),
     dryness_label: String(parsed.dryness_label ?? "Dry"),
+    why_we_love_it: String(
+      parsed.why_we_love_it ?? "A crowd-pleasing bottle worth putting on the table."
+    ),
     provenance: parsed.provenance === "verified" ? "verified" : "inferred",
   };
 }
@@ -298,6 +300,7 @@ export const ENRICHMENT_FIELDS_PROMPT = [
   'wine_type ("red" | "white" | "rose")',
   "body/acidity/tannin/sweetness/fruity_earthy/crisp_creamy (1-5 integers; put mouthfeel/texture here — e.g. crisp vs creamy — NOT in flavors)",
   'dryness_label (e.g. "Dry")',
+  'why_we_love_it (1 friendly sentence — shopper-facing fallback when the store has not set staff_note)',
   'provenance ("verified" or "inferred")',
-  "Do NOT generate why_we_love_it or from_the_team — staff writes those separately",
+  "Do NOT generate staff_note, staff_name, or from_the_team — those come from the store CSV / staff, not the model",
 ].join("; ");

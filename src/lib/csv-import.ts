@@ -3,6 +3,7 @@ import { prisma } from "./db";
 import { cleanField, parsePrice, isLikelyWine, normalizeSize, normalizeLookupCode } from "./wine-classifier";
 import { findExistingWine } from "./wine-matcher";
 import { classifyAndEnrichPendingWines } from "./enrichment";
+import { mergeStaffCopyIntoExtraData, staffCopyFromCsvRow } from "./staff-copy";
 
 // Measured: a single companyWine.update() over this Supabase project's
 // pooler averages ~1.1s/row — 35,979 rows sequentially would take ~11
@@ -28,6 +29,8 @@ interface CsvRow {
   availability: string;
   staff_pick: string;
   is_last_arrival: string;
+  staff_note?: string;
+  staff_name?: string;
 }
 
 function parseCsvLine(line: string, delimiter: string): string[] {
@@ -104,6 +107,9 @@ interface ParsedRow {
   availability: string | null;
   staffPick: boolean;
   isLastArrival: boolean;
+  /** Raw CSV cells — only meaningful when the file has those headers. */
+  staffNote: string;
+  staffName: string;
 }
 
 export async function importCsvForCompany(
@@ -120,6 +126,10 @@ export async function importCsvForCompany(
   // that explicitly has the column can change it.
   const hasStaffPickColumn = headers.includes("staff_pick");
   const hasLastArrivalColumn = headers.includes("is_last_arrival");
+  // Same opt-in pattern as staff_pick: missing columns must not wipe or
+  // invent store copy on a routine inventory re-import.
+  const hasStaffNoteColumn = headers.includes("staff_note");
+  const hasStaffNameColumn = headers.includes("staff_name");
   console.log(`CSV import timing: parse took ${Date.now() - parseStartedAt}ms (${rawRows.length} rows)`);
 
   const lookupFetchStartedAt = Date.now();
@@ -133,6 +143,7 @@ export async function importCsvForCompany(
       availability: true,
       staffPick: true,
       isLastArrival: true,
+      ...(hasStaffNoteColumn ? { extraData: true } : {}),
     },
   });
   // Keyed by normalized code (leading zeros stripped) rather than the raw
@@ -152,6 +163,8 @@ export async function importCsvForCompany(
   let unchanged = 0;
   const toUpdate: ParsedRow[] = [];
   const toCreate: ParsedRow[] = [];
+  /** lookupCode → merged CompanyWine.extraData when staff_note should write. */
+  const staffExtraUpdates = new Map<string, Record<string, unknown>>();
 
   for (const row of rawRows) {
     const itemName = cleanField(row.item_name);
@@ -173,6 +186,8 @@ export async function importCsvForCompany(
       availability: cleanField(row.availability) || null,
       staffPick: cleanField(row.staff_pick).toUpperCase() === "YES",
       isLastArrival: cleanField(row.is_last_arrival).toUpperCase() === "YES",
+      staffNote: row.staff_note ?? "",
+      staffName: row.staff_name ?? "",
     };
 
     const existing = existingByLookupCode.get(lookupCode);
@@ -180,6 +195,23 @@ export async function importCsvForCompany(
       toCreate.push(parsed);
       continue;
     }
+
+    const existingExtra = (existing as { extraData?: unknown }).extraData ?? null;
+    const staffPatch = staffCopyFromCsvRow({
+      hasStaffNoteColumn,
+      hasStaffNameColumn,
+      csvNote: parsed.staffNote,
+      csvName: parsed.staffName,
+      existingExtraData: existingExtra,
+    });
+    const prevStaff =
+      existingExtra && typeof existingExtra === "object"
+        ? (existingExtra as Record<string, unknown>)
+        : null;
+    const staffChanged =
+      staffPatch != null &&
+      (String(prevStaff?.staff_note ?? "") !== staffPatch.staff_note ||
+        String(prevStaff?.staff_name ?? "") !== staffPatch.staff_name);
 
     // Only the columns this CSV actually has can have changed — comparing
     // a field it doesn't include would flag every row as "changed" just
@@ -190,10 +222,17 @@ export async function importCsvForCompany(
       existing.stockCount !== parsed.stockCount ||
       existing.availability !== parsed.availability ||
       (hasStaffPickColumn && existing.staffPick !== parsed.staffPick) ||
-      (hasLastArrivalColumn && existing.isLastArrival !== parsed.isLastArrival);
+      (hasLastArrivalColumn && existing.isLastArrival !== parsed.isLastArrival) ||
+      staffChanged;
 
     if (changed) {
       toUpdate.push(parsed);
+      if (staffChanged && staffPatch) {
+        staffExtraUpdates.set(
+          lookupCode,
+          mergeStaffCopyIntoExtraData(existingExtra, staffPatch)
+        );
+      }
     } else {
       unchanged++;
     }
@@ -253,6 +292,23 @@ export async function importCsvForCompany(
   }
   console.log(`CSV import timing: all updates took ${Date.now() - updateStartedAt}ms total (${toUpdate.length} rows)`);
 
+  // Staff copy lives in company_wines.extra_data (JSON), not columnar fields —
+  // apply after the bulk VALUES update so we don't inflate bind-param counts.
+  if (staffExtraUpdates.size > 0) {
+    const staffStartedAt = Date.now();
+    for (const [lookupCode, extraData] of staffExtraUpdates) {
+      await prisma.$executeRaw`
+        UPDATE company_wines
+        SET extra_data = ${JSON.stringify(extraData)}::jsonb
+        WHERE company_id = ${companyId}
+          AND regexp_replace(lookup_code, '^0+', '') = ${lookupCode}
+      `;
+    }
+    console.log(
+      `CSV import timing: staff_note/staff_name updates took ${Date.now() - staffStartedAt}ms (${staffExtraUpdates.size} rows)`
+    );
+  }
+
   // Genuinely new SKUs: still one at a time — each needs its own fuzzy
   // dedup decision against the generic catalog, which can't be batched the
   // same way. Normally a small set on a routine re-import.
@@ -275,6 +331,17 @@ export async function importCsvForCompany(
       created++;
     }
 
+    const staffPatch = staffCopyFromCsvRow({
+      hasStaffNoteColumn,
+      hasStaffNameColumn,
+      csvNote: row.staffNote,
+      csvName: row.staffName,
+      existingExtraData: null,
+    });
+    const extraData = staffPatch
+      ? mergeStaffCopyIntoExtraData(null, staffPatch)
+      : undefined;
+
     await prisma.companyWine.create({
       data: {
         companyId,
@@ -286,6 +353,9 @@ export async function importCsvForCompany(
         availability: row.availability,
         staffPick: hasStaffPickColumn ? row.staffPick : false,
         isLastArrival: hasLastArrivalColumn ? row.isLastArrival : false,
+        ...(extraData
+          ? { extraData: extraData as Prisma.InputJsonValue }
+          : {}),
       },
     });
   }
