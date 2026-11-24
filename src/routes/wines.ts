@@ -6,6 +6,7 @@ import {
   getStaffPicks,
   getNewArrivals,
   getHolidayPicks,
+  hasHolidayPicks,
   listWines,
   getWineDetail,
   updateCompanyWine,
@@ -52,6 +53,14 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
   }
 
   if (holidayOnly) {
+    // Home only needs a yes/no — avoid loading the full curated list.
+    if (req.query.check === "1") {
+      const exists = await hasHolidayPicks(
+        companyId,
+        querySection ? [querySection] : undefined
+      );
+      return res.json({ hasHolidayPicks: exists });
+    }
     // Holiday picks are a curated cross-section list — don't apply the
     // default POC section filter; only narrow by section when asked.
     const { wines, categories } = await getHolidayPicks(companyId, {

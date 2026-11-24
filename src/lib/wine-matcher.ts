@@ -177,6 +177,21 @@ export async function getNewArrivals(companyId: string, sections?: string[]) {
   return rows.map(serializeCompanyWine);
 }
 
+/** Cheap existence check for the home card — no wine serialization. */
+export async function hasHolidayPicks(
+  companyId: string,
+  sections?: string[]
+): Promise<boolean> {
+  const count = await prisma.companyWine.count({
+    where: {
+      companyId,
+      isHolidayPick: true,
+      wine: { isWine: true, ...(sections?.length ? { section: { in: sections } } : {}) },
+    },
+  });
+  return count > 0;
+}
+
 export async function getHolidayPicks(
   companyId: string,
   options?: { category?: string | null; sections?: string[] }
