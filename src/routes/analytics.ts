@@ -9,6 +9,7 @@ const EVENT_TYPES = [
   "qr_visit",
   "wine_viewed",
   "staff_favorites_view",
+  "holiday_picks_view",
   "new_arrivals_view",
   "wine_saved",
 ] as const;
@@ -68,6 +69,7 @@ router.get(
       scanFailure,
       winesViewed: eventCountByType.wine_viewed ?? 0,
       staffFavoritesViews: eventCountByType.staff_favorites_view ?? 0,
+      holidayPicksViews: eventCountByType.holiday_picks_view ?? 0,
       newArrivalsViews: eventCountByType.new_arrivals_view ?? 0,
       winesSaved: eventCountByType.wine_saved ?? 0,
     });
@@ -153,6 +155,7 @@ router.get(
       qrVisits: "qr_visit",
       winesViewed: "wine_viewed",
       staffFavoritesViews: "staff_favorites_view",
+      holidayPicksViews: "holiday_picks_view",
       newArrivalsViews: "new_arrivals_view",
       winesSaved: "wine_saved",
     };

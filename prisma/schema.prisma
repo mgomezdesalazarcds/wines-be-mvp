@@ -124,17 +124,20 @@ model CompanyWine {
   sale          Float?
   stockCount    Int?     @map("stock_count")
   availability  String?
-  staffPick     Boolean  @default(false) @map("staff_pick")
-  isLastArrival Boolean  @default(false) @map("is_last_arrival")
-  imageUrl      String?  @map("image_url")
-  extraData     Json?    @map("extra_data")
-  createdAt     DateTime @default(now()) @map("created_at")
+  staffPick       Boolean  @default(false) @map("staff_pick")
+  isLastArrival   Boolean  @default(false) @map("is_last_arrival")
+  isHolidayPick   Boolean  @default(false) @map("is_holiday_pick")
+  holidayCategory String?  @map("holiday_category")
+  imageUrl        String?  @map("image_url")
+  extraData       Json?    @map("extra_data")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   company Company @relation(fields: [companyId], references: [id])
   wine    Wine    @relation(fields: [wineId], references: [id])
 
   @@unique([companyId, lookupCode])
   @@index([companyId, staffPick], map: "idx_company_wines_staff")
+  @@index([companyId, isHolidayPick], map: "idx_company_wines_holiday")
   @@map("company_wines")
 }
 

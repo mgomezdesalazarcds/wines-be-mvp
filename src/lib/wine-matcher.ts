@@ -86,6 +86,8 @@ export interface SerializedWine {
   section: string | null;
   staff_pick: boolean;
   is_last_arrival: boolean;
+  is_holiday_pick: boolean;
+  holiday_category: string | null;
   image_url: string | null;
   created_at: Date;
 }
@@ -98,6 +100,8 @@ interface CompanyWineRow {
   availability: string | null;
   staffPick: boolean;
   isLastArrival: boolean;
+  isHolidayPick: boolean;
+  holidayCategory: string | null;
   imageUrl: string | null;
   createdAt: Date;
   extraData: unknown;
@@ -123,6 +127,8 @@ function serializeCompanyWine(cw: CompanyWineRow): SerializedWine {
     section: cw.wine.section,
     staff_pick: cw.staffPick,
     is_last_arrival: cw.isLastArrival,
+    is_holiday_pick: cw.isHolidayPick,
+    holiday_category: cw.holidayCategory,
     image_url: cw.imageUrl,
     created_at: cw.createdAt,
   };
@@ -171,6 +177,38 @@ export async function getNewArrivals(companyId: string, sections?: string[]) {
   return rows.map(serializeCompanyWine);
 }
 
+export async function getHolidayPicks(
+  companyId: string,
+  options?: { category?: string | null; sections?: string[] }
+) {
+  const category = options?.category?.trim() || null;
+  const sections = options?.sections;
+  // Fetch the full curated set first so category chips stay stable when the
+  // client filters by one holiday_category — filtering in the WHERE would
+  // shrink `categories` to only the active chip.
+  const rows = await prisma.companyWine.findMany({
+    where: {
+      companyId,
+      isHolidayPick: true,
+      wine: { isWine: true, ...(sections?.length ? { section: { in: sections } } : {}) },
+    },
+    include: { wine: { select: WINE_SELECT } },
+    orderBy: [{ holidayCategory: "asc" }, { wine: { itemName: "asc" } }],
+  });
+  const allWines = rows.map(serializeCompanyWine);
+  const categories = [
+    ...new Set(
+      allWines
+        .map((w) => w.holiday_category?.trim())
+        .filter((value): value is string => Boolean(value))
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+  const wines = category
+    ? allWines.filter((w) => w.holiday_category?.trim() === category)
+    : allWines;
+  return { wines, categories };
+}
+
 export async function listWines(companyId: string, sections?: string[], limit = 50) {
   const rows = await prisma.companyWine.findMany({
     where: {
@@ -217,16 +255,20 @@ async function fuzzySearchCompanyWines(
       section: string | null;
       staff_pick: boolean;
       is_last_arrival: boolean;
+      is_holiday_pick: boolean;
+      holiday_category: string | null;
       image_url: string | null;
       created_at: Date;
       sim: number;
     }[]
   >`
     SELECT lookup_code, item_name, price, sale, size, stock_count, availability,
-      is_wine, section, staff_pick, is_last_arrival, image_url, created_at, sim
+      is_wine, section, staff_pick, is_last_arrival, is_holiday_pick, holiday_category,
+      image_url, created_at, sim
     FROM (
       SELECT cw.lookup_code, w.item_name, cw.price, cw.sale, w.size, cw.stock_count, cw.availability,
-        w.is_wine, w.section, cw.staff_pick, cw.is_last_arrival, cw.image_url, cw.created_at,
+        w.is_wine, w.section, cw.staff_pick, cw.is_last_arrival, cw.is_holiday_pick,
+        cw.holiday_category, cw.image_url, cw.created_at,
         GREATEST(${simExpr}) AS sim
       FROM company_wines cw
       JOIN wines w ON w.id = cw.wine_id
@@ -251,6 +293,8 @@ async function fuzzySearchCompanyWines(
     section: r.section,
     staff_pick: r.staff_pick,
     is_last_arrival: r.is_last_arrival,
+    is_holiday_pick: r.is_holiday_pick,
+    holiday_category: r.holiday_category,
     image_url: r.image_url,
     created_at: r.created_at,
     matchConfidence: r.sim,
@@ -283,6 +327,8 @@ export interface UpdateCompanyWineInput {
   availability?: string | null;
   staffPick?: boolean;
   isLastArrival?: boolean;
+  isHolidayPick?: boolean;
+  holidayCategory?: string | null;
   imageUrl?: string | null;
   /** Only the attributes being changed — merged over whatever the company
    * already overrode, not a replacement of the whole object. Any key not

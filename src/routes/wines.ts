@@ -5,6 +5,7 @@ import {
   searchWines,
   getStaffPicks,
   getNewArrivals,
+  getHolidayPicks,
   listWines,
   getWineDetail,
   updateCompanyWine,
@@ -34,6 +35,9 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const staffOnly = req.query.staff === "1";
   const arrivalsOnly = req.query.arrivals === "1";
+  const holidayOnly = req.query.holiday === "1";
+  const holidayCategory =
+    typeof req.query.category === "string" ? req.query.category.trim() : null;
   const querySection = typeof req.query.section === "string" ? req.query.section : null;
   const sections = querySection ? [querySection] : DEFAULT_SECTIONS;
 
@@ -45,6 +49,16 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
   if (arrivalsOnly) {
     const wines = await getNewArrivals(companyId, sections);
     return res.json({ wines });
+  }
+
+  if (holidayOnly) {
+    // Holiday picks are a curated cross-section list — don't apply the
+    // default POC section filter; only narrow by section when asked.
+    const { wines, categories } = await getHolidayPicks(companyId, {
+      category: holidayCategory,
+      sections: querySection ? [querySection] : undefined,
+    });
+    return res.json({ wines, categories });
   }
 
   if (q && q.length >= 2) {
@@ -148,6 +162,18 @@ router.patch("/:id", requireAuth, requireCompanyScope, asyncHandler(async (req: 
       return res.status(400).json({ error: "isLastArrival must be a boolean" });
     }
     input.isLastArrival = body.isLastArrival;
+  }
+  if (body.isHolidayPick !== undefined) {
+    if (typeof body.isHolidayPick !== "boolean") {
+      return res.status(400).json({ error: "isHolidayPick must be a boolean" });
+    }
+    input.isHolidayPick = body.isHolidayPick;
+  }
+  if (body.holidayCategory !== undefined) {
+    if (body.holidayCategory !== null && typeof body.holidayCategory !== "string") {
+      return res.status(400).json({ error: "holidayCategory must be a string or null" });
+    }
+    input.holidayCategory = body.holidayCategory;
   }
   if (body.imageUrl !== undefined) {
     if (body.imageUrl !== null && typeof body.imageUrl !== "string") {

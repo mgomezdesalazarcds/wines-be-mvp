@@ -11,8 +11,8 @@ import { mergeStaffCopyIntoExtraData, staffCopyFromCsvRow } from "./staff-copy";
 // turns that into one round-trip per chunk instead of one per row.
 // Postgres's real limit is 32,767 bind params per statement (confirmed by
 // hitting it at chunk size 9000 => 36,000 params with 4 params/row). The
-// VALUES tuple now has 5-7 params/row depending on which optional columns
-// (staff_pick, is_last_arrival) the CSV includes, so the chunk size is
+// VALUES tuple params/row grow with optional columns (staff_pick,
+// is_last_arrival, is_holiday_pick, holiday_category), so the chunk size is
 // derived from the actual column count instead of a fixed constant — a
 // hardcoded size silently broke (P2035 "too many bind variables") the last
 // time a column was added here without updating it.
@@ -29,6 +29,8 @@ interface CsvRow {
   availability: string;
   staff_pick: string;
   is_last_arrival: string;
+  is_holiday_pick: string;
+  holiday_category: string;
   staff_note?: string;
   staff_name?: string;
 }
@@ -107,6 +109,8 @@ interface ParsedRow {
   availability: string | null;
   staffPick: boolean;
   isLastArrival: boolean;
+  isHolidayPick: boolean;
+  holidayCategory: string | null;
   /** Raw CSV cells — only meaningful when the file has those headers. */
   staffNote: string;
   staffName: string;
@@ -126,6 +130,10 @@ export async function importCsvForCompany(
   // that explicitly has the column can change it.
   const hasStaffPickColumn = headers.includes("staff_pick");
   const hasLastArrivalColumn = headers.includes("is_last_arrival");
+  // Same opt-in pattern as staff_pick: missing columns must not wipe holiday
+  // curation on a routine inventory re-import that omits those headers.
+  const hasHolidayPickColumn = headers.includes("is_holiday_pick");
+  const hasHolidayCategoryColumn = headers.includes("holiday_category");
   // Same opt-in pattern as staff_pick: missing columns must not wipe or
   // invent store copy on a routine inventory re-import.
   const hasStaffNoteColumn = headers.includes("staff_note");
@@ -143,6 +151,8 @@ export async function importCsvForCompany(
       availability: true,
       staffPick: true,
       isLastArrival: true,
+      isHolidayPick: true,
+      holidayCategory: true,
       ...(hasStaffNoteColumn ? { extraData: true } : {}),
     },
   });
@@ -186,6 +196,8 @@ export async function importCsvForCompany(
       availability: cleanField(row.availability) || null,
       staffPick: cleanField(row.staff_pick).toUpperCase() === "YES",
       isLastArrival: cleanField(row.is_last_arrival).toUpperCase() === "YES",
+      isHolidayPick: cleanField(row.is_holiday_pick).toUpperCase() === "YES",
+      holidayCategory: cleanField(row.holiday_category) || null,
       staffNote: row.staff_note ?? "",
       staffName: row.staff_name ?? "",
     };
@@ -223,6 +235,8 @@ export async function importCsvForCompany(
       existing.availability !== parsed.availability ||
       (hasStaffPickColumn && existing.staffPick !== parsed.staffPick) ||
       (hasLastArrivalColumn && existing.isLastArrival !== parsed.isLastArrival) ||
+      (hasHolidayPickColumn && existing.isHolidayPick !== parsed.isHolidayPick) ||
+      (hasHolidayCategoryColumn && existing.holidayCategory !== parsed.holidayCategory) ||
       staffChanged;
 
     if (changed) {
@@ -240,9 +254,8 @@ export async function importCsvForCompany(
 
   // Already-known SKUs: one UPDATE...FROM(VALUES...) per chunk instead of
   // one round-trip per row (see MAX_BIND_PARAMS above for why). The
-  // optional columns (staff_pick, is_last_arrival) are only included in the
-  // VALUES tuple/SET clause when the CSV actually has that header — see the
-  // hasStaffPickColumn comment above for why.
+  // optional columns are only included in the VALUES tuple/SET clause when
+  // the CSV actually has that header — see hasStaffPickColumn above.
   const updateColumns = [
     "lookup_code",
     "price",
@@ -251,6 +264,8 @@ export async function importCsvForCompany(
     "availability",
     ...(hasStaffPickColumn ? ["staff_pick"] : []),
     ...(hasLastArrivalColumn ? ["is_last_arrival"] : []),
+    ...(hasHolidayPickColumn ? ["is_holiday_pick"] : []),
+    ...(hasHolidayCategoryColumn ? ["holiday_category"] : []),
   ];
   const setClause = Prisma.join(
     updateColumns.filter((c) => c !== "lookup_code").map((c) => Prisma.raw(`${c} = v.${c}`)),
@@ -278,6 +293,8 @@ export async function importCsvForCompany(
         Prisma.sql`${r.availability}`,
         ...(hasStaffPickColumn ? [Prisma.sql`${r.staffPick}::boolean`] : []),
         ...(hasLastArrivalColumn ? [Prisma.sql`${r.isLastArrival}::boolean`] : []),
+        ...(hasHolidayPickColumn ? [Prisma.sql`${r.isHolidayPick}::boolean`] : []),
+        ...(hasHolidayCategoryColumn ? [Prisma.sql`${r.holidayCategory}`] : []),
       ];
       return Prisma.sql`(${Prisma.join(tuple)})`;
     });
@@ -353,6 +370,8 @@ export async function importCsvForCompany(
         availability: row.availability,
         staffPick: hasStaffPickColumn ? row.staffPick : false,
         isLastArrival: hasLastArrivalColumn ? row.isLastArrival : false,
+        isHolidayPick: hasHolidayPickColumn ? row.isHolidayPick : false,
+        holidayCategory: hasHolidayCategoryColumn ? row.holidayCategory : null,
         ...(extraData
           ? { extraData: extraData as Prisma.InputJsonValue }
           : {}),
