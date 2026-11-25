@@ -56,7 +56,12 @@ export interface EnrichmentData {
  * these onto Wine.extraData in a way that clobbers store copy — they are
  * preserved if they somehow landed on the wine row. why_we_love_it is AI
  * fallback and is allowed to refresh on re-enrich. */
-export const STAFF_EXTRA_DATA_KEYS = ["staff_note", "staff_name", "from_the_team"] as const;
+export const STAFF_EXTRA_DATA_KEYS = [
+  "staff_note",
+  "staff_name",
+  "from_the_team",
+  "holiday_note",
+] as const;
 
 const FAMILY_SET = new Set<string>(FLAVOR_FAMILIES);
 

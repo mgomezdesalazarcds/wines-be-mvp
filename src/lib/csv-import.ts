@@ -3,7 +3,12 @@ import { prisma } from "./db";
 import { cleanField, parsePrice, isLikelyWine, normalizeSize, normalizeLookupCode } from "./wine-classifier";
 import { findExistingWine } from "./wine-matcher";
 import { classifyAndEnrichPendingWines } from "./enrichment";
-import { mergeStaffCopyIntoExtraData, staffCopyFromCsvRow } from "./staff-copy";
+import {
+  holidayNoteFromCsvRow,
+  mergeHolidayNoteIntoExtraData,
+  mergeStaffCopyIntoExtraData,
+  staffCopyFromCsvRow,
+} from "./staff-copy";
 
 // Measured: a single companyWine.update() over this Supabase project's
 // pooler averages ~1.1s/row — 35,979 rows sequentially would take ~11
@@ -33,6 +38,7 @@ interface CsvRow {
   holiday_category: string;
   staff_note?: string;
   staff_name?: string;
+  holiday_note?: string;
 }
 
 function parseCsvLine(line: string, delimiter: string): string[] {
@@ -114,6 +120,7 @@ interface ParsedRow {
   /** Raw CSV cells — only meaningful when the file has those headers. */
   staffNote: string;
   staffName: string;
+  holidayNote: string;
 }
 
 export async function importCsvForCompany(
@@ -138,9 +145,11 @@ export async function importCsvForCompany(
   // invent store copy on a routine inventory re-import.
   const hasStaffNoteColumn = headers.includes("staff_note");
   const hasStaffNameColumn = headers.includes("staff_name");
+  const hasHolidayNoteColumn = headers.includes("holiday_note");
   console.log(`CSV import timing: parse took ${Date.now() - parseStartedAt}ms (${rawRows.length} rows)`);
 
   const lookupFetchStartedAt = Date.now();
+  const needsExtraData = hasStaffNoteColumn || hasHolidayNoteColumn;
   const existingRows = await prisma.companyWine.findMany({
     where: { companyId },
     select: {
@@ -153,7 +162,7 @@ export async function importCsvForCompany(
       isLastArrival: true,
       isHolidayPick: true,
       holidayCategory: true,
-      ...(hasStaffNoteColumn ? { extraData: true } : {}),
+      ...(needsExtraData ? { extraData: true } : {}),
     },
   });
   // Keyed by normalized code (leading zeros stripped) rather than the raw
@@ -173,7 +182,7 @@ export async function importCsvForCompany(
   let unchanged = 0;
   const toUpdate: ParsedRow[] = [];
   const toCreate: ParsedRow[] = [];
-  /** lookupCode → merged CompanyWine.extraData when staff_note should write. */
+  /** lookupCode → merged CompanyWine.extraData when staff/holiday notes write. */
   const staffExtraUpdates = new Map<string, Record<string, unknown>>();
 
   for (const row of rawRows) {
@@ -200,6 +209,7 @@ export async function importCsvForCompany(
       holidayCategory: cleanField(row.holiday_category) || null,
       staffNote: row.staff_note ?? "",
       staffName: row.staff_name ?? "",
+      holidayNote: row.holiday_note ?? "",
     };
 
     const existing = existingByLookupCode.get(lookupCode);
@@ -216,14 +226,21 @@ export async function importCsvForCompany(
       csvName: parsed.staffName,
       existingExtraData: existingExtra,
     });
-    const prevStaff =
+    const holidayNotePatch = holidayNoteFromCsvRow({
+      hasHolidayNoteColumn,
+      csvNote: parsed.holidayNote,
+    });
+    const prevExtra =
       existingExtra && typeof existingExtra === "object"
         ? (existingExtra as Record<string, unknown>)
         : null;
     const staffChanged =
       staffPatch != null &&
-      (String(prevStaff?.staff_note ?? "") !== staffPatch.staff_note ||
-        String(prevStaff?.staff_name ?? "") !== staffPatch.staff_name);
+      (String(prevExtra?.staff_note ?? "") !== staffPatch.staff_note ||
+        String(prevExtra?.staff_name ?? "") !== staffPatch.staff_name);
+    const holidayNoteChanged =
+      holidayNotePatch != null &&
+      String(prevExtra?.holiday_note ?? "") !== holidayNotePatch;
 
     // Only the columns this CSV actually has can have changed — comparing
     // a field it doesn't include would flag every row as "changed" just
@@ -237,15 +254,20 @@ export async function importCsvForCompany(
       (hasLastArrivalColumn && existing.isLastArrival !== parsed.isLastArrival) ||
       (hasHolidayPickColumn && existing.isHolidayPick !== parsed.isHolidayPick) ||
       (hasHolidayCategoryColumn && existing.holidayCategory !== parsed.holidayCategory) ||
-      staffChanged;
+      staffChanged ||
+      holidayNoteChanged;
 
     if (changed) {
       toUpdate.push(parsed);
-      if (staffChanged && staffPatch) {
-        staffExtraUpdates.set(
-          lookupCode,
-          mergeStaffCopyIntoExtraData(existingExtra, staffPatch)
-        );
+      if (staffChanged || holidayNoteChanged) {
+        let nextExtra = existingExtra;
+        if (staffChanged && staffPatch) {
+          nextExtra = mergeStaffCopyIntoExtraData(nextExtra, staffPatch);
+        }
+        if (holidayNoteChanged && holidayNotePatch) {
+          nextExtra = mergeHolidayNoteIntoExtraData(nextExtra, holidayNotePatch);
+        }
+        staffExtraUpdates.set(lookupCode, nextExtra as Record<string, unknown>);
       }
     } else {
       unchanged++;
@@ -322,7 +344,7 @@ export async function importCsvForCompany(
       `;
     }
     console.log(
-      `CSV import timing: staff_note/staff_name updates took ${Date.now() - staffStartedAt}ms (${staffExtraUpdates.size} rows)`
+      `CSV import timing: staff/holiday note updates took ${Date.now() - staffStartedAt}ms (${staffExtraUpdates.size} rows)`
     );
   }
 
@@ -355,9 +377,17 @@ export async function importCsvForCompany(
       csvName: row.staffName,
       existingExtraData: null,
     });
-    const extraData = staffPatch
-      ? mergeStaffCopyIntoExtraData(null, staffPatch)
-      : undefined;
+    const holidayNotePatch = holidayNoteFromCsvRow({
+      hasHolidayNoteColumn,
+      csvNote: row.holidayNote,
+    });
+    let extraData: Record<string, unknown> | undefined;
+    if (staffPatch) {
+      extraData = mergeStaffCopyIntoExtraData(null, staffPatch);
+    }
+    if (holidayNotePatch) {
+      extraData = mergeHolidayNoteIntoExtraData(extraData ?? null, holidayNotePatch);
+    }
 
     await prisma.companyWine.create({
       data: {

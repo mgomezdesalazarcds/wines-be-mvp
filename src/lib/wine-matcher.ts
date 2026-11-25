@@ -88,6 +88,8 @@ export interface SerializedWine {
   is_last_arrival: boolean;
   is_holiday_pick: boolean;
   holiday_category: string | null;
+  /** Store one-liner for Holiday Picks cards (CompanyWine.extraData). */
+  holiday_note: string | null;
   image_url: string | null;
   created_at: Date;
 }
@@ -114,6 +116,14 @@ interface CompanyWineRow {
   };
 }
 
+function holidayNoteFromExtraData(extraData: unknown): string | null {
+  if (!extraData || typeof extraData !== "object") return null;
+  const note = (extraData as Record<string, unknown>).holiday_note;
+  if (typeof note !== "string") return null;
+  const trimmed = note.trim();
+  return trimmed || null;
+}
+
 function serializeCompanyWine(cw: CompanyWineRow): SerializedWine {
   return {
     lookup_code: cw.lookupCode,
@@ -129,6 +139,7 @@ function serializeCompanyWine(cw: CompanyWineRow): SerializedWine {
     is_last_arrival: cw.isLastArrival,
     is_holiday_pick: cw.isHolidayPick,
     holiday_category: cw.holidayCategory,
+    holiday_note: holidayNoteFromExtraData(cw.extraData),
     image_url: cw.imageUrl,
     created_at: cw.createdAt,
   };
@@ -310,6 +321,7 @@ async function fuzzySearchCompanyWines(
     is_last_arrival: r.is_last_arrival,
     is_holiday_pick: r.is_holiday_pick,
     holiday_category: r.holiday_category,
+    holiday_note: null,
     image_url: r.image_url,
     created_at: r.created_at,
     matchConfidence: r.sim,

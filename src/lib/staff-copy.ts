@@ -64,3 +64,30 @@ export function mergeStaffCopyIntoExtraData(
     staff_name: patch.staff_name,
   };
 }
+
+/**
+ * Optional CSV holiday_note → CompanyWine.extraData.
+ * Same opt-in rules as staff_note: missing/empty column must not wipe copy.
+ */
+export function holidayNoteFromCsvRow(input: {
+  hasHolidayNoteColumn: boolean;
+  csvNote: string | undefined | null;
+}): string | null {
+  if (!input.hasHolidayNoteColumn) return null;
+  const note = String(input.csvNote ?? "").replace(/[\t\r\n]+/g, " ").trim();
+  return note || null;
+}
+
+export function mergeHolidayNoteIntoExtraData(
+  existingExtraData: unknown,
+  holidayNote: string
+): Record<string, unknown> {
+  const existing =
+    existingExtraData && typeof existingExtraData === "object"
+      ? (existingExtraData as Record<string, unknown>)
+      : {};
+  return {
+    ...existing,
+    holiday_note: holidayNote,
+  };
+}
