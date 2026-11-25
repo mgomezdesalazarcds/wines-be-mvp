@@ -307,5 +307,5 @@ export const ENRICHMENT_FIELDS_PROMPT = [
   'dryness_label (e.g. "Dry")',
   'why_we_love_it (1 friendly sentence — shopper-facing fallback when the store has not set staff_note)',
   'provenance ("verified" or "inferred")',
-  "Do NOT generate staff_note, staff_name, or from_the_team — those come from the store CSV / staff, not the model",
+  "Do NOT generate staff_note, staff_name, from_the_team, or holiday_note — those come from the store CSV / staff, not the model",
 ].join("; ");
